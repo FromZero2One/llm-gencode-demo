@@ -76,7 +76,7 @@ def test_memory_usage():
     # 检查是否共享词汇表
     print(f"t1.vocab is t2.vocab: {t1.vocab is t2.vocab}")
     print(f"t2.vocab is t3.vocab: {t2.vocab is t3.vocab}")
-    print(f"✓ 词汇表已共享，节省内存")
+    print("[OK] 词汇表已共享，节省内存")
     
     # 估算内存节省
     vocab_size = len(t1.vocab)
@@ -105,7 +105,7 @@ def test_different_vocab_sizes():
         tokenizers.append(t)
         print(f"  vocab_size={size}: {elapsed*1000:.2f}ms")
     
-    print(f"\n✓ 缓存机制正常工作")
+    print(f"\n[OK] 缓存机制正常工作")
     print(f"  相同vocab_size的实例会共享词汇表")
 
 
@@ -123,12 +123,12 @@ if __name__ == '__main__':
         print("所有测试完成！")
         print("="*60)
         print("\n优化效果:")
-        print("  ✓ 词汇表缓存 - 避免重复构建")
-        print("  ✓ 日志控制 - 生产环境可关闭调试输出")
-        print("  ✓ 性能提升 - 预计30-50%的速度提升")
+        print("  [OK] 词汇表缓存 - 避免重复构建")
+        print("  [OK] 日志控制 - 生产环境可关闭调试输出")
+        print("  [OK] 性能提升 - 预计30-50%的速度提升")
         
     except Exception as e:
-        print(f"\n✗ 测试失败: {e}")
+        print(f"\n[ERROR] 测试失败: {e}")
         import traceback
         traceback.print_exc()
         sys.exit(1)

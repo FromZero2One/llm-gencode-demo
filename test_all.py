@@ -22,14 +22,14 @@ def test_tokenizer():
         
         decoded = tokenizer.decode(token_ids)
         
-        print(f"✓ Tokenizer测试通过")
+        print(f"[OK] Tokenizer测试通过")
         print(f"  原始文本: {test_text}")
         print(f"  Token数量: {sum(mask)}")
         print(f"  解码结果: {decoded}")
         
         return True
     except Exception as e:
-        print(f"✗ Tokenizer测试失败: {e}")
+        print(f"[ERROR] Tokenizer测试失败: {e}")
         traceback.print_exc()
         return False
 
@@ -68,13 +68,13 @@ def test_attention():
         
         assert encoded.shape == embedded.shape
         
-        print(f"✓ Attention测试通过")
+        print(f"[OK] Attention测试通过")
         print(f"  Output shape: {output.shape}")
         print(f"  Attention weights shape: {weights.shape}")
         
         return True
     except Exception as e:
-        print(f"✗ Attention测试失败: {e}")
+        print(f"[ERROR] Attention测试失败: {e}")
         traceback.print_exc()
         return False
 
@@ -111,14 +111,14 @@ def test_transformer():
         
         assert logits.shape == (batch_size, tgt_seq_len, vocab_size)
         
-        print(f"✓ Transformer测试通过")
+        print(f"[OK] Transformer测试通过")
         print(f"  Logits shape: {logits.shape}")
         print(f"  Encoder layers: {len(enc_weights)}")
         print(f"  Decoder layers: {len(dec_weights)}")
         
         return True
     except Exception as e:
-        print(f"✗ Transformer测试失败: {e}")
+        print(f"[ERROR] Transformer测试失败: {e}")
         traceback.print_exc()
         return False
 
@@ -160,13 +160,13 @@ def test_generator():
         assert 'generated_code' in result
         assert 'token_count' in result
         
-        print(f"✓ Generator测试通过")
+        print(f"[OK] Generator测试通过")
         print(f"  生成Token数: {result['token_count']}")
         print(f"  生成代码长度: {len(result['generated_code'])} 字符")
         
         return True
     except Exception as e:
-        print(f"✗ Generator测试失败: {e}")
+        print(f"[ERROR] Generator测试失败: {e}")
         traceback.print_exc()
         return False
 
@@ -189,13 +189,13 @@ def test_postprocessor():
         assert 'processed_code' in result
         assert 'validation_report' in result
         
-        print(f"✓ PostProcessor测试通过")
+        print(f"[OK] PostProcessor测试通过")
         print(f"  验证结果: {'有效' if result['validation_report']['is_valid'] else '无效'}")
         print(f"  应用步骤: {len(result['steps_applied'])}")
         
         return True
     except Exception as e:
-        print(f"✗ PostProcessor测试失败: {e}")
+        print(f"[ERROR] PostProcessor测试失败: {e}")
         traceback.print_exc()
         return False
 
@@ -225,13 +225,13 @@ def test_cache():
         assert stats['hits'] == 1
         assert stats['misses'] == 0
         
-        print(f"✓ Cache测试通过")
+        print(f"[OK] Cache测试通过")
         print(f"  命中率: {stats['hit_rate']}")
         print(f"  缓存大小: {stats['size']}")
         
         return True
     except Exception as e:
-        print(f"✗ Cache测试失败: {e}")
+        print(f"[ERROR] Cache测试失败: {e}")
         traceback.print_exc()
         return False
 
@@ -264,14 +264,14 @@ def test_pipeline():
         assert result['success'] == True
         assert 'processed_code' in result
         
-        print(f"✓ Pipeline测试通过")
+        print(f"[OK] Pipeline测试通过")
         print(f"  来源: {result['source']}")
         print(f"  耗时: {result['processing_time']:.4f}s")
         print(f"  Token数: {result['token_count']}")
         
         return True
     except Exception as e:
-        print(f"✗ Pipeline测试失败: {e}")
+        print(f"[ERROR] Pipeline测试失败: {e}")
         traceback.print_exc()
         return False
 
@@ -299,7 +299,7 @@ def main():
             success = test_func()
             results.append((name, success))
         except Exception as e:
-            print(f"\n✗ {name}测试异常: {e}")
+            print(f"\n[ERROR] {name}测试异常: {e}")
             traceback.print_exc()
             results.append((name, False))
     
@@ -312,20 +312,20 @@ def main():
     total = len(results)
     
     for name, success in results:
-        status = "✓ 通过" if success else "✗ 失败"
+        status = "[OK] 通过" if success else "[ERROR] 失败"
         print(f"  {status} - {name}")
     
     print(f"\n总计: {passed}/{total} 测试通过")
     
     if passed == total:
-        print("\n🎉 所有测试通过！系统工作正常。")
+        print("\n[SUCCESS] 所有测试通过！系统工作正常。")
         print("\n下一步:")
         print("  1. 运行 python main.py 查看完整演示")
-        print("  2. 阅读 GUIDE.md 了解详细用法")
+        print("  2. 阅读 README.md 了解详细用法")
         print("  3. 修改参数进行实验")
         return 0
     else:
-        print(f"\n⚠ {total - passed} 个测试失败，请检查错误信息")
+        print(f"\n[WARNING] {total - passed} 个测试失败，请检查错误信息")
         return 1
 
 
