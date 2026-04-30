@@ -20,16 +20,19 @@ class TransformerEncoderLayer(nn.Module):
     """
     
     def __init__(self, d_model: int = 128, nhead: int = 8, 
-                 dim_feedforward: int = 512, dropout: float = 0.1):
+                 dim_feedforward: int = 512, dropout: float = 0.1,
+                 debug_mode: bool = False):
         super().__init__()
         
-        print(f"[EncoderLayer] 初始化")
+        self.debug_mode = debug_mode
+        
+        print(f"[EncoderLayer] 初始化 (debug_mode={debug_mode})")
         print(f"  - d_model: {d_model}")
         print(f"  - nhead: {nhead}")
         print(f"  - dim_feedforward: {dim_feedforward}")
         
         # Self-Attention
-        self.self_attn = MultiHeadAttention(d_model, nhead, dropout)
+        self.self_attn = MultiHeadAttention(d_model, nhead, dropout, debug_mode=debug_mode)
         
         # Feed Forward Network (两层全连接)
         self.ffn = nn.Sequential(
@@ -89,16 +92,19 @@ class TransformerDecoderLayer(nn.Module):
     """
     
     def __init__(self, d_model: int = 128, nhead: int = 8,
-                 dim_feedforward: int = 512, dropout: float = 0.1):
+                 dim_feedforward: int = 512, dropout: float = 0.1,
+                 debug_mode: bool = False):
         super().__init__()
         
-        print(f"[DecoderLayer] 初始化")
+        self.debug_mode = debug_mode
+        
+        print(f"[DecoderLayer] 初始化 (debug_mode={debug_mode})")
         
         # Masked Self-Attention（解码时只能看到之前的token）
-        self.self_attn = MultiHeadAttention(d_model, nhead, dropout)
+        self.self_attn = MultiHeadAttention(d_model, nhead, dropout, debug_mode=debug_mode)
         
         # Cross-Attention（关注Encoder的输出）
-        self.cross_attn = MultiHeadAttention(d_model, nhead, dropout)
+        self.cross_attn = MultiHeadAttention(d_model, nhead, dropout, debug_mode=debug_mode)
         
         # Feed Forward Network
         self.ffn = nn.Sequential(
@@ -169,11 +175,14 @@ class TransformerModel(nn.Module):
     def __init__(self, vocab_size: int = 1000, d_model: int = 128, 
                  nhead: int = 8, num_encoder_layers: int = 2,
                  num_decoder_layers: int = 2, dim_feedforward: int = 512,
-                 dropout: float = 0.1, max_seq_length: int = 128):
+                 dropout: float = 0.1, max_seq_length: int = 128,
+                 debug_mode: bool = False):
         super().__init__()
         
+        self.debug_mode = debug_mode
+        
         print(f"\n{'='*60}")
-        print(f"[TransformerModel] 初始化完整模型")
+        print(f"[TransformerModel] 初始化完整模型 (debug_mode={debug_mode})")
         print(f"{'='*60}")
         print(f"  - 词汇表大小: {vocab_size}")
         print(f"  - 模型维度: {d_model}")
@@ -194,13 +203,13 @@ class TransformerModel(nn.Module):
         
         # Encoder layers
         self.encoder_layers = nn.ModuleList([
-            TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout)
+            TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, debug_mode=debug_mode)
             for _ in range(num_encoder_layers)
         ])
         
         # Decoder layers
         self.decoder_layers = nn.ModuleList([
-            TransformerDecoderLayer(d_model, nhead, dim_feedforward, dropout)
+            TransformerDecoderLayer(d_model, nhead, dim_feedforward, dropout, debug_mode=debug_mode)
             for _ in range(num_decoder_layers)
         ])
         

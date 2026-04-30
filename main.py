@@ -14,8 +14,19 @@
 """
 
 import sys
+import logging
 from pipeline import CodeGenerationPipeline
 from visualizer import AttentionVisualizer
+
+# 配置日志系统
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    handlers=[
+        logging.StreamHandler(sys.stdout),
+    ]
+)
+logger = logging.getLogger(__name__)
 
 
 def demo_basic_generation():
@@ -24,7 +35,7 @@ def demo_basic_generation():
     print(" " * 20 + "演示1: 基本代码生成流程")
     print("="*80)
     
-    # 创建管道
+    # 创建管道 (启用 debug_mode)
     pipeline = CodeGenerationPipeline(
         vocab_size=1000,
         d_model=128,
@@ -32,7 +43,8 @@ def demo_basic_generation():
         num_encoder_layers=2,
         num_decoder_layers=2,
         cache_size=10,
-        device='cpu'
+        device='cpu',
+        debug_mode=True  # 启用调试模式
     )
     
     # 测试用例

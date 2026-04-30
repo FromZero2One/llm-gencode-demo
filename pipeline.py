@@ -32,7 +32,8 @@ class CodeGenerationPipeline:
                  num_encoder_layers: int = 2,
                  num_decoder_layers: int = 2,
                  cache_size: int = 50,
-                 device: str = 'cpu'):
+                 device: str = 'cpu',
+                 debug_mode: bool = False):
         """
         初始化管道
         
@@ -44,14 +45,17 @@ class CodeGenerationPipeline:
             num_decoder_layers: Decoder层数
             cache_size: 缓存大小
             device: 计算设备
+            debug_mode: 是否启用调试模式
         """
+        self.debug_mode = debug_mode
+        
         print(f"\n{'='*60}")
-        print(f"[Pipeline] 初始化代码生成管道")
+        print(f"[Pipeline] 初始化代码生成管道 (debug_mode={debug_mode})")
         print(f"{'='*60}")
         
         # 1. 创建Tokenizer
         print("\n[Step 1] 创建Tokenizer...")
-        self.tokenizer = SimpleTokenizer(vocab_size=vocab_size)
+        self.tokenizer = SimpleTokenizer(vocab_size=vocab_size, debug_mode=debug_mode)
         
         # 2. 创建Transformer模型
         print("\n[Step 2] 创建Transformer模型...")
@@ -60,7 +64,8 @@ class CodeGenerationPipeline:
             d_model=d_model,
             nhead=nhead,
             num_encoder_layers=num_encoder_layers,
-            num_decoder_layers=num_decoder_layers
+            num_decoder_layers=num_decoder_layers,
+            debug_mode=debug_mode
         )
         
         # 3. 创建代码生成器

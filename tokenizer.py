@@ -7,6 +7,13 @@ import re
 import logging
 from typing import List, Dict, Tuple
 
+# 配置日志 - 如果没有配置过,设置默认级别为 DEBUG
+if not logging.getLogger().handlers:
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
+
 # 配置日志
 logger = logging.getLogger(__name__)
 
@@ -25,7 +32,7 @@ class SimpleTokenizer:
     # 类变量：缓存不同大小的词汇表
     _vocab_cache = {}
     
-    def __init__(self, vocab_size: int = 1000, debug_mode: bool = False):
+    def __init__(self, vocab_size: int = 1000, debug_mode: bool = True):
         self.vocab_size = vocab_size
         self.debug_mode = debug_mode
         self.PAD_TOKEN = '<PAD>'
@@ -223,7 +230,7 @@ class SimpleTokenizer:
 # 测试代码
 if __name__ == '__main__':
     # 创建tokenizer
-    tokenizer = SimpleTokenizer(vocab_size=1000)
+    tokenizer = SimpleTokenizer(vocab_size=1000, debug_mode=True)
     
     # 测试文本
     test_text = "public class UserService { public User findById(Long id) { return userRepository.findById(id).orElse(null); } }"
