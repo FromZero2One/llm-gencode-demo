@@ -32,7 +32,8 @@ class CodeGenerationPipeline:
                  num_encoder_layers: int = 2,
                  num_decoder_layers: int = 2,
                  cache_size: int = 50,
-                 device: str = 'cpu'):
+                 device: str = 'cpu',
+                 enable_attention_tracking: bool = False):
         """
         初始化管道
         
@@ -44,6 +45,7 @@ class CodeGenerationPipeline:
             num_decoder_layers: Decoder层数
             cache_size: 缓存大小
             device: 计算设备
+            enable_attention_tracking: 是否启用注意力追踪
         """
         print(f"\n{'='*60}")
         print(f"[Pipeline] 初始化代码生成管道")
@@ -60,7 +62,8 @@ class CodeGenerationPipeline:
             d_model=d_model,
             nhead=nhead,
             num_encoder_layers=num_encoder_layers,
-            num_decoder_layers=num_decoder_layers
+            num_decoder_layers=num_decoder_layers,
+            enable_attention_tracking=enable_attention_tracking
         )
         
         # 3. 创建代码生成器
@@ -95,7 +98,8 @@ class CodeGenerationPipeline:
                  top_k: int = 50,
                  use_cache: bool = True,
                  do_post_process: bool = True,
-                 verbose: bool = True) -> Dict:
+                 verbose: bool = True,
+                 enable_probability_analysis: bool = False) -> Dict:
         """
         完整的代码生成流程
         
@@ -107,6 +111,7 @@ class CodeGenerationPipeline:
             use_cache: 是否使用缓存
             do_post_process: 是否进行后处理
             verbose: 是否打印详细信息
+            enable_probability_analysis: 是否启用概率分布分析
             
         Returns:
             包含生成结果和元数据的字典
@@ -123,6 +128,7 @@ class CodeGenerationPipeline:
             print(f"Top-K: {top_k}")
             print(f"Use cache: {use_cache}")
             print(f"Do post-process: {do_post_process}")
+            print(f"Probability analysis: {enable_probability_analysis}")
         
         result = {
             'prompt': prompt,
@@ -133,6 +139,7 @@ class CodeGenerationPipeline:
             'processing_time': 0,
             'token_count': 0,
             'validation_report': None,
+            'probability_analyses': [],
             'error': None
         }
         
@@ -183,12 +190,14 @@ class CodeGenerationPipeline:
                 prompt=prompt,
                 max_length=max_length,
                 strategy=strategy,
-                verbose=verbose
+                verbose=verbose,
+                enable_probability_analysis=enable_probability_analysis
             )
             
             raw_code = generation_result['generated_code']
             result['raw_code'] = raw_code
             result['token_count'] = generation_result['token_count']
+            result['probability_analyses'] = generation_result.get('probability_analyses', [])
             
             if verbose:
                 print(f"\n生成的原始代码长度: {len(raw_code)} 字符")

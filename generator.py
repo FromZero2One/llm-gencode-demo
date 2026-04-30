@@ -9,6 +9,129 @@ from transformer import TransformerModel
 from tokenizer import SimpleTokenizer
 
 
+class ProbabilityAnalyzer:
+    """
+    概率分布分析器
+    
+    用于深入理解模型在每一步的预测不确定性、概率分布形态等
+    帮助学习者理解为什么某些token被选中，以及temperature如何影响决策
+    """
+    
+    @staticmethod
+    def analyze_distribution(logits: torch.Tensor, selected_token_id: int) -> Dict:
+        """
+        分析概率分布的关键指标
+        
+        Args:
+            logits: [batch_size, vocab_size] 模型的原始输出
+            selected_token_id: 被选中的token ID
+            
+        Returns:
+            dict包含各种概率分布指标
+        """
+        # 转换为概率分布
+        probs = F.softmax(logits, dim=-1)
+        
+        # 计算熵（不确定性）
+        entropy = -(probs * torch.log(probs + 1e-10)).sum(dim=-1)
+        
+        # 找到选中token的排名和概率
+        sorted_probs, sorted_indices = torch.sort(probs, descending=True)
+        
+        # 找出选中token在排序后的位置
+        batch_size = logits.shape[0]
+        ranks = []
+        selected_probs = []
+        
+        for b in range(batch_size):
+            rank_mask = (sorted_indices[b] == selected_token_id)
+            rank = rank_mask.nonzero(as_tuple=True)[0][0].item()
+            ranks.append(rank)
+            selected_probs.append(sorted_probs[b, rank].item())
+        
+        # Top-k累积概率
+        top5_cumulative = sorted_probs[:, :5].sum(dim=-1)
+        top10_cumulative = sorted_probs[:, :10].sum(dim=-1)
+        
+        # 计算Gini系数（概率集中度）
+        gini = ProbabilityAnalyzer._calculate_gini(probs)
+        vocab_coverage = ProbabilityAnalyzer._vocab_coverage(probs, 0.9)
+        
+        return {
+            'entropy': entropy.tolist() if batch_size > 1 else entropy.item(),
+            'ranks': ranks if batch_size > 1 else ranks[0],
+            'selected_probabilities': selected_probs,
+            'top1_probabilities': sorted_probs[:, 0].tolist(),
+            'top5_cumulative_probabilities': top5_cumulative.tolist(),
+            'top10_cumulative_probabilities': top10_cumulative.tolist(),
+            'gini_coefficients': gini.tolist() if batch_size > 1 else gini.item(),
+            'vocab_coverage_90pct': vocab_coverage.tolist() if batch_size > 1 else vocab_coverage.item()
+        }
+    
+    @staticmethod
+    def _calculate_gini(probs: torch.Tensor) -> torch.Tensor:
+        """
+        计算Gini系数，衡量概率分布的不平等程度
+        Gini接近1: 概率集中在少数token（确定性高）
+        Gini接近0: 概率均匀分布（随机性高）
+        """
+        batch_size = probs.shape[0]
+        ginis = []
+        
+        for b in range(batch_size):
+            sorted_p = torch.sort(probs[b], descending=True)[0]
+            n = sorted_p.shape[0]
+            indices = torch.arange(1, n + 1, dtype=torch.float32, device=probs.device)
+            gini = (2 * (sorted_p * indices).sum() / (n * sorted_p.sum())) - ((n + 1) / n)
+            ginis.append(gini)
+        
+        return torch.tensor(ginis, device=probs.device)
+    
+    @staticmethod
+    def _vocab_coverage(probs: torch.Tensor, threshold: float = 0.9) -> torch.Tensor:
+        """
+        计算累积概率达到threshold所需的最少token数量
+        值越小说明概率越集中
+        """
+        batch_size = probs.shape[0]
+        coverages = []
+        
+        for b in range(batch_size):
+            sorted_probs = torch.sort(probs[b], descending=True)[0]
+            cumulative = torch.cumsum(sorted_probs, dim=0)
+            coverage = (cumulative >= threshold).nonzero(as_tuple=True)[0]
+            if len(coverage) > 0:
+                coverages.append(coverage[0].item() + 1)
+            else:
+                coverages.append(len(sorted_probs))
+        
+        return torch.tensor(coverages, device=probs.device)
+    
+    @staticmethod
+    def format_analysis(analysis: Dict, step: int, selected_token: str) -> str:
+        """格式化分析结果为可读字符串"""
+        # 处理单值和列表的情况
+        entropy = analysis['entropy'] if isinstance(analysis['entropy'], float) else analysis['entropy'][0]
+        rank = analysis['ranks'] if isinstance(analysis['ranks'], int) else analysis['ranks'][0]
+        sel_prob = analysis['selected_probabilities'][0]
+        top1_prob = analysis['top1_probabilities'][0]
+        top5_cum = analysis['top5_cumulative_probabilities'][0]
+        gini = analysis['gini_coefficients'] if isinstance(analysis['gini_coefficients'], float) else analysis['gini_coefficients'][0]
+        vocab_cov = analysis['vocab_coverage_90pct'] if isinstance(analysis['vocab_coverage_90pct'], int) else analysis['vocab_coverage_90pct'][0]
+        
+        lines = [
+            f"\n  [Probability Analysis] Step {step}: Selected '{selected_token}'",
+            f"    Entropy (uncertainty): {entropy:.4f}",
+            f"    Token rank: #{rank}",
+            f"    Selected probability: {sel_prob:.4f}",
+            f"    Top-1 probability: {top1_prob:.4f}",
+            f"    Top-5 cumulative: {top5_cum:.4f}",
+            f"    Gini coefficient: {gini:.4f}",
+            f"    Tokens for 90% prob: {vocab_cov}"
+        ]
+        return '\n'.join(lines)
+
+
 class SamplingStrategy:
     """采样策略基类"""
     
@@ -164,7 +287,8 @@ class CodeGenerator:
     
     def generate(self, prompt: str, max_length: int = 100,
                  strategy: Optional[SamplingStrategy] = None,
-                 verbose: bool = True) -> Dict:
+                 verbose: bool = True,
+                 enable_probability_analysis: bool = False) -> Dict:
         """
         生成代码的主函数
         
@@ -173,6 +297,7 @@ class CodeGenerator:
             max_length: 最大生成长度
             strategy: 采样策略（默认使用TemperatureSampling）
             verbose: 是否打印详细信息
+            enable_probability_analysis: 是否启用概率分布分析
             
         Returns:
             dict包含生成的代码和统计信息
@@ -205,6 +330,7 @@ class CodeGenerator:
         current_sequence = bos_tensor
         
         generation_details = []
+        probability_analyses = []
         
         for step in range(max_length):
             with torch.no_grad():
@@ -243,6 +369,15 @@ class CodeGenerator:
                     for pred in detail['top5_predictions']:
                         marker = " <-- selected" if pred['token_id'] == next_token.item() else ""
                         print(f"      - '{pred['token']}' (prob: {pred['probability']:.4f}){marker}")
+                    
+                    # 概率分布分析
+                    if enable_probability_analysis:
+                        analysis = ProbabilityAnalyzer.analyze_distribution(logits, next_token.item())
+                        probability_analyses.append(analysis)
+                        
+                        token_name = detail['token']
+                        analysis_str = ProbabilityAnalyzer.format_analysis(analysis, step, token_name)
+                        print(analysis_str)
                 
                 # 检查是否结束
                 if next_token.item() == self.tokenizer.EOS_TOKEN:
@@ -274,6 +409,7 @@ class CodeGenerator:
             'generated_code': generated_text,
             'token_count': len(generated_tokens),
             'generation_details': generation_details,
+            'probability_analyses': probability_analyses,
             'stats': self.generation_stats.copy()
         }
         
@@ -284,6 +420,16 @@ class CodeGenerator:
             print(f"生成的Token数: {len(generated_tokens)}")
             print(f"\n生成的代码:\n{generated_text}")
             print(f"\n平均生成长度: {result['stats']['avg_generation_length']:.1f} tokens")
+            
+            if enable_probability_analysis and probability_analyses:
+                print(f"\n{'='*60}")
+                print(f"[Probability Analysis Summary]")
+                print(f"{'='*60}")
+                avg_entropy = sum(a['entropy'] for a in probability_analyses) / len(probability_analyses)
+                avg_rank = sum(a['ranks'] for a in probability_analyses) / len(probability_analyses)
+                print(f"Average entropy: {avg_entropy:.4f}")
+                print(f"Average token rank: {avg_rank:.1f}")
+                print(f"(Lower entropy = more confident, Lower rank = higher probability)")
         
         return result
     

@@ -6,7 +6,186 @@ Transformer模型核心架构
 import torch
 import torch.nn as nn
 import math
+from typing import Dict, List
 from attention import MultiHeadAttention, PositionalEncoding
+
+
+class AttentionTracker:
+    """
+    注意力权重追踪器
+    
+    记录每一层Encoder和Decoder的注意力模式，帮助学习者理解：
+    - 信息如何在不同层之间流动
+    - 深层网络如何逐步抽象特征
+    - 不同层的注意力模式差异
+    """
+    
+    def __init__(self):
+        self.encoder_attn_by_layer: Dict[int, torch.Tensor] = {}
+        self.decoder_self_attn_by_layer: Dict[int, torch.Tensor] = {}
+        self.decoder_cross_attn_by_layer: Dict[int, torch.Tensor] = {}
+        self.current_step = 0
+    
+    def reset(self):
+        """重置追踪器"""
+        self.encoder_attn_by_layer.clear()
+        self.decoder_self_attn_by_layer.clear()
+        self.decoder_cross_attn_by_layer.clear()
+        self.current_step = 0
+    
+    def record_encoder_attention(self, layer_idx: int, attn_weights: torch.Tensor):
+        """记录Encoder某一层的注意力权重"""
+        self.encoder_attn_by_layer[layer_idx] = attn_weights.detach().cpu()
+    
+    def record_decoder_attention(self, layer_idx: int, self_attn: torch.Tensor, 
+                                 cross_attn: torch.Tensor):
+        """记录Decoder某一层的自注意力和交叉注意力权重"""
+        self.decoder_self_attn_by_layer[layer_idx] = self_attn.detach().cpu()
+        self.decoder_cross_attn_by_layer[layer_idx] = cross_attn.detach().cpu()
+    
+    def get_layer_summary(self, layer_idx: int) -> Dict:
+        """获取某一层的注意力统计摘要"""
+        summary = {}
+        
+        if layer_idx in self.encoder_attn_by_layer:
+            enc_attn = self.encoder_attn_by_layer[layer_idx]
+            summary['encoder'] = {
+                'shape': list(enc_attn.shape),
+                'mean_attention': enc_attn.mean().item(),
+                'max_attention': enc_attn.max().item(),
+                'attention_entropy': self._calculate_attention_entropy(enc_attn).item()
+            }
+        
+        if layer_idx in self.decoder_self_attn_by_layer:
+            dec_self = self.decoder_self_attn_by_layer[layer_idx]
+            summary['decoder_self'] = {
+                'shape': list(dec_self.shape),
+                'mean_attention': dec_self.mean().item(),
+                'max_attention': dec_self.max().item(),
+                'attention_entropy': self._calculate_attention_entropy(dec_self).item()
+            }
+        
+        if layer_idx in self.decoder_cross_attn_by_layer:
+            dec_cross = self.decoder_cross_attn_by_layer[layer_idx]
+            summary['decoder_cross'] = {
+                'shape': list(dec_cross.shape),
+                'mean_attention': dec_cross.mean().item(),
+                'max_attention': dec_cross.max().item(),
+                'attention_entropy': self._calculate_attention_entropy(dec_cross).item()
+            }
+        
+        return summary
+    
+    def _calculate_attention_entropy(self, attn_weights: torch.Tensor) -> torch.Tensor:
+        """计算注意力分布的熵（衡量注意力的集中度）"""
+        # attn_weights: [batch, nhead, seq_len, seq_len]
+        # 对最后一个维度计算熵
+        eps = 1e-10
+        entropy = -(attn_weights * torch.log(attn_weights + eps)).sum(dim=-1)
+        return entropy.mean()
+    
+    def print_layer_comparison(self, num_encoder_layers: int, num_decoder_layers: int):
+        """打印各层注意力模式的对比"""
+        print(f"\n{'='*70}")
+        print(f"[AttentionTracker] 逐层注意力模式对比")
+        print(f"{'='*70}")
+        
+        print(f"\n--- Encoder Layers ---")
+        for i in range(num_encoder_layers):
+            if i in self.encoder_attn_by_layer:
+                summary = self.get_layer_summary(i)['encoder']
+                print(f"\nLayer {i+1}:")
+                print(f"  Shape: {summary['shape']}")
+                print(f"  Mean attention: {summary['mean_attention']:.6f}")
+                print(f"  Max attention: {summary['max_attention']:.4f}")
+                print(f"  Attention entropy: {summary['attention_entropy']:.4f}")
+                print(f"  {'(More focused)' if summary['attention_entropy'] < 2.0 else '(More distributed)'}")
+        
+        print(f"\n--- Decoder Layers ---")
+        for i in range(num_decoder_layers):
+            if i in self.decoder_self_attn_by_layer:
+                self_summary = self.get_layer_summary(i)['decoder_self']
+                cross_summary = self.get_layer_summary(i)['decoder_cross']
+                
+                print(f"\nLayer {i+1}:")
+                print(f"  Self-Attention:")
+                print(f"    Entropy: {self_summary['attention_entropy']:.4f} "
+                      f"{'(focused)' if self_summary['attention_entropy'] < 2.0 else '(distributed)'}")
+                print(f"  Cross-Attention:")
+                print(f"    Entropy: {cross_summary['attention_entropy']:.4f} "
+                      f"{'(focused)' if cross_summary['attention_entropy'] < 2.0 else '(distributed)'}")
+    
+    def visualize_attention_evolution(self, token_names: List[str], 
+                                     save_path: str = 'attention_evolution.png'):
+        """
+        可视化注意力权重随层数的演变
+        
+        Args:
+            token_names: token名称列表
+            save_path: 保存路径
+        """
+        try:
+            import matplotlib.pyplot as plt
+            import seaborn as sns
+            
+            num_encoder = len(self.encoder_attn_by_layer)
+            num_decoder = len(self.decoder_cross_attn_by_layer)
+            
+            if num_encoder == 0 and num_decoder == 0:
+                print("[AttentionTracker] 没有可可视化的注意力数据")
+                return
+            
+            total_layers = num_encoder + num_decoder
+            fig, axes = plt.subplots(1, total_layers, figsize=(5 * total_layers, 4))
+            
+            if total_layers == 1:
+                axes = [axes]
+            
+            layer_idx = 0
+            
+            # 绘制Encoder各层
+            for i in range(num_encoder):
+                if i in self.encoder_attn_by_layer:
+                    attn = self.encoder_attn_by_layer[i][0, 0].numpy()  # 第一个样本，第一个头
+                    
+                    ax = axes[layer_idx]
+                    sns.heatmap(attn, ax=ax, cmap='viridis', cbar=False)
+                    ax.set_title(f'Enc Layer {i+1}', fontsize=10)
+                    
+                    if len(token_names) <= 20:
+                        ax.set_xticks(range(len(token_names)))
+                        ax.set_yticks(range(len(token_names)))
+                        ax.set_xticklabels(token_names, rotation=45, ha='right', fontsize=6)
+                        ax.set_yticklabels(token_names, fontsize=6)
+                    
+                    layer_idx += 1
+            
+            # 绘制Decoder各层（交叉注意力）
+            for i in range(num_decoder):
+                if i in self.decoder_cross_attn_by_layer:
+                    attn = self.decoder_cross_attn_by_layer[i][0, 0].numpy()
+                    
+                    ax = axes[layer_idx]
+                    sns.heatmap(attn, ax=ax, cmap='viridis', cbar=False)
+                    ax.set_title(f'Dec Layer {i+1} (Cross)', fontsize=10)
+                    
+                    if len(token_names) <= 20:
+                        ax.set_xticks(range(attn.shape[1]))
+                        ax.set_yticks(range(attn.shape[0]))
+                        ax.set_xticklabels([f'Src{j}' for j in range(attn.shape[1])], 
+                                          rotation=45, ha='right', fontsize=6)
+                        ax.set_yticklabels([f'Tgt{j}' for j in range(attn.shape[0])], fontsize=6)
+                    
+                    layer_idx += 1
+            
+            plt.suptitle('Attention Evolution Across Layers', fontsize=14, fontweight='bold')
+            plt.tight_layout()
+            plt.savefig(save_path, dpi=150, bbox_inches='tight')
+            print(f"[AttentionTracker] 注意力演变图保存到: {save_path}")
+            plt.show()
+            
+        except ImportError:
+            print("[AttentionTracker] 安装matplotlib和seaborn以启用可视化功能")
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -127,13 +306,15 @@ class TransformerDecoderLayer(nn.Module):
             
         Returns:
             output: [batch_size, tgt_seq_len, d_model]
+            self_attn_weights: 自注意力权重
+            cross_attn_weights: 交叉注意力权重
         """
         print(f"\n[DecoderLayer] 前向传播")
         print(f"  - Target shape: {tgt.shape}")
         print(f"  - Memory shape: {memory.shape}")
         
         # 1. Masked Self-Attention
-        self_attn_output, _ = self.self_attn(tgt, tgt, tgt, tgt_mask)
+        self_attn_output, self_attn_weights = self.self_attn(tgt, tgt, tgt, tgt_mask)
         tgt = tgt + self.dropout(self_attn_output)
         tgt = self.norm1(tgt)
         
@@ -151,7 +332,7 @@ class TransformerDecoderLayer(nn.Module):
         
         print(f"  - Output shape: {tgt.shape}")
         
-        return tgt, cross_attn_weights
+        return tgt, self_attn_weights, cross_attn_weights
 
 
 class TransformerModel(nn.Module):
@@ -169,7 +350,8 @@ class TransformerModel(nn.Module):
     def __init__(self, vocab_size: int = 1000, d_model: int = 128, 
                  nhead: int = 8, num_encoder_layers: int = 2,
                  num_decoder_layers: int = 2, dim_feedforward: int = 512,
-                 dropout: float = 0.1, max_seq_length: int = 128):
+                 dropout: float = 0.1, max_seq_length: int = 128,
+                 enable_attention_tracking: bool = False):
         super().__init__()
         
         print(f"\n{'='*60}")
@@ -182,9 +364,19 @@ class TransformerModel(nn.Module):
         print(f"  - Decoder层数: {num_decoder_layers}")
         print(f"  - FeedForward维度: {dim_feedforward}")
         print(f"  - 最大序列长度: {max_seq_length}")
+        print(f"  - 注意力追踪: {'启用' if enable_attention_tracking else '禁用'}")
         
         self.d_model = d_model
         self.max_seq_length = max_seq_length
+        self.num_encoder_layers = num_encoder_layers
+        self.num_decoder_layers = num_decoder_layers
+        self.enable_attention_tracking = enable_attention_tracking
+        
+        # 注意力追踪器
+        if enable_attention_tracking:
+            self.attention_tracker = AttentionTracker()
+        else:
+            self.attention_tracker = None
         
         # Embedding层：将token ID转换为向量
         self.embedding = nn.Embedding(vocab_size, d_model)
@@ -261,6 +453,10 @@ class TransformerModel(nn.Module):
             print(f"\n  --- Encoder Layer {i+1} ---")
             memory, attn_weights = layer(memory, src_mask)
             encoder_attn_weights.append(attn_weights)
+            
+            # 记录注意力权重（如果启用追踪）
+            if self.enable_attention_tracking and self.attention_tracker is not None:
+                self.attention_tracker.record_encoder_attention(i, attn_weights)
         
         print(f"\n[Transformer] Encoder完成")
         print(f"  - Memory shape: {memory.shape}")
@@ -296,11 +492,17 @@ class TransformerModel(nn.Module):
         # 3. 通过多层Decoder
         output = tgt_encoded
         decoder_attn_weights = []
+        decoder_self_attn_weights = []
         
         for i, layer in enumerate(self.decoder_layers):
             print(f"\n  --- Decoder Layer {i+1} ---")
-            output, attn_weights = layer(output, memory, tgt_mask, memory_mask)
-            decoder_attn_weights.append(attn_weights)
+            output, self_attn_w, cross_attn_w = layer(output, memory, tgt_mask, memory_mask)
+            decoder_attn_weights.append(cross_attn_w)
+            decoder_self_attn_weights.append(self_attn_w)
+            
+            # 记录注意力权重（如果启用追踪）
+            if self.enable_attention_tracking and self.attention_tracker is not None:
+                self.attention_tracker.record_decoder_attention(i, self_attn_w, cross_attn_w)
         
         print(f"\n[Transformer] Decoder完成")
         print(f"  - Output shape: {output.shape}")
@@ -370,6 +572,14 @@ class TransformerModel(nn.Module):
         """清除缓存（用于新的生成任务）"""
         if hasattr(self, '_cached_memory'):
             delattr(self, '_cached_memory')
+        
+        # 重置注意力追踪器
+        if self.enable_attention_tracking and self.attention_tracker is not None:
+            self.attention_tracker.reset()
+    
+    def get_attention_tracker(self) -> AttentionTracker:
+        """获取注意力追踪器"""
+        return self.attention_tracker
 
 
 # 测试代码
