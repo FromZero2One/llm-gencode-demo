@@ -22,6 +22,8 @@
    - [3.6 代码生成流程](#36-代码生成流程)
    - [3.7 后处理](#37-后处理)
    - [3.8 缓存机制](#38-缓存机制)
+   - [3.9 训练系统](#39-训练系统) ⭐新增
+   - [3.10 KV Cache优化](#310-kv-cache优化) ⭐新增
 4. [模块详细说明](#模块详细说明)
 5. [调试和实验](#调试和实验)
 6. [性能优化](#性能优化)
@@ -59,6 +61,8 @@
 | **模块化** | 9个独立模块，可单独学习 |
 | **可调试** | 丰富的日志和可视化工具 |
 | **可扩展** | 易于添加新功能或修改现有逻辑 |
+| **可训练** | 完整的训练系统，支持模型学习 ⭐新增 |
+| **高性能** | KV Cache优化，推理加速10-100倍 ⭐新增 |
 
 ---
 
@@ -2042,15 +2046,216 @@ mask = [[1, 0, 0],
 
 ---
 
+## ⭐ 新增功能（最新版本）
+
+### 3.9 训练系统
+
+#### 概述
+
+训练系统使模型能够从数据中学习，而不仅仅是随机初始化后的前向传播。这是理解LLM如何获得知识的关键。
+
+**新增文件**: `scripts/trainer.py`
+
+**包含组件**：
+- ✅ CrossEntropyLoss - 交叉熵损失函数
+- ✅ AdamW - 优化器（解耦权重衰减）
+- ✅ WarmupLinearScheduler - 学习率调度器
+- ✅ TextDataset - 数据集类
+- ✅ Trainer - 训练管理器
+
+#### 快速开始
+
+```python
+from scripts.trainer import Trainer, TextDataset
+from scripts.transformer import Transformer
+
+# 1. 准备数据
+texts = [
+    "def hello_world():",
+    "    print('Hello, World!')",
+    # ... 更多代码样本
+]
+
+dataset = TextDataset(texts, tokenizer, max_len=128)
+
+# 2. 创建模型
+model = Transformer(
+    vocab_size=tokenizer.vocab_size,
+    d_model=256,
+    nhead=8,
+    num_encoder_layers=4,
+    num_decoder_layers=4
+)
+
+# 3. 训练
+trainer = Trainer(
+    model=model,
+    train_dataset=dataset,
+    batch_size=16,
+    lr=1e-4,
+    epochs=20
+)
+
+history = trainer.train()
+```
+
+#### 核心特性
+
+1. **标签平滑（Label Smoothing）**
+   - 防止模型过于自信
+   - 提高泛化能力
+   ```python
+   loss_fn = CrossEntropyLoss(label_smoothing=0.1)
+   ```
+
+2. **Warmup学习率策略**
+   - 初期线性增加学习率（稳定训练）
+   - 后期线性衰减（精细调整）
+   ```python
+   scheduler = WarmupLinearScheduler(
+       optimizer,
+       warmup_steps=1000,
+       total_steps=10000,
+       max_lr=1e-4
+   )
+   ```
+
+3. **梯度裁剪**
+   - 防止梯度爆炸
+   - 自动限制梯度范围
+   ```python
+   torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+   ```
+
+4. **Checkpoint管理**
+   - 自动保存最佳模型
+   - 支持断点续训
+   ```python
+   trainer.save_checkpoint(epoch, loss)
+   trainer.load_checkpoint("checkpoints/checkpoint_epoch_5.pt")
+   ```
+
+#### 运行演示
+
+```bash
+python scripts/test_training_and_cache.py
+```
+
+详细文档请参考：[TRAINING_AND_KV_CACHE_GUIDE.md](TRAINING_AND_KV_CACHE_GUIDE.md)
+
+---
+
+### 3.10 KV Cache优化
+
+#### 概述
+
+KV Cache（Key-Value缓存）是LLM推理加速的核心技术，可将生成长度从O(n²)降低到O(n)。
+
+**新增文件**: `scripts/kv_cache.py`
+
+**核心价值**：
+- ⚡ 推理速度提升10-50倍
+- 💾 避免重复计算历史token的K/V
+- 🎯 对长序列特别有效
+
+#### 为什么需要KV Cache？
+
+**无Cache的情况**：
+```
+Step 1: 计算 token1 的 Q, K, V
+Step 2: 重新计算 token1, token2 的 Q, K, V  ← token1被重复计算
+Step 3: 重新计算 token1, token2, token3 的 Q, K, V  ← token1,2被重复计算
+...
+总计算量: O(n²)
+```
+
+**有Cache的情况**：
+```
+Step 1: 计算 token1 的 Q, K, V → 存入cache
+Step 2: 只计算 token2 的 K, V → 从cache读取token1的K/V
+Step 3: 只计算 token3 的 K, V → 从cache读取token1,2的K/V
+...
+总计算量: O(n)
+```
+
+#### 性能对比
+
+| 序列长度 | 无Cache计算量 | 有Cache计算量 | 加速比 |
+|---------|--------------|--------------|--------|
+| 10      | 55           | 10           | 5.5x   |
+| 100     | 5,050        | 100          | 50.5x  |
+| 1000    | 500,500      | 1,000        | 500.5x |
+
+#### 使用示例
+
+```python
+from scripts.kv_cache import KVCacheManager
+
+# 1. 初始化
+manager = KVCacheManager(
+    num_layers=4,
+    batch_size=1,
+    num_heads=8,
+    max_seq_len=256,
+    head_dim=32
+)
+manager.initialize()
+
+# 2. 在模型中使用
+for step in range(generation_steps):
+    outputs = model(
+        input_token,
+        use_cache=True,
+        cache_manager=manager,
+        cache_position=step
+    )
+    next_token = sample(outputs)
+```
+
+#### 运行演示
+
+```bash
+python scripts/kv_cache.py
+```
+
+输出示例：
+```
+======================================================================
+KV Cache性能优势演示
+======================================================================
+
+配置:
+  - 序列长度: 100
+  - 模型维度: 512
+  - 注意力头: 8
+
+❌ 不使用KV Cache:
+  - 总计算量: 20,684,800 次操作
+  - 时间复杂度: O(n²)
+
+✅ 使用KV Cache:
+  - 总计算量: 409,600 次操作
+  - 时间复杂度: O(n)
+
+📊 性能对比:
+  - 加速比: 50.5x
+  - 节省计算: 98.0%
+======================================================================
+```
+
+详细文档请参考：[TRAINING_AND_KV_CACHE_GUIDE.md](TRAINING_AND_KV_CACHE_GUIDE.md)
+
+---
+
 ## 项目统计
 
 | 类别 | 数量 |
 |------|------|
-| Python模块 | 9个 |
-| 测试文件 | 2个 |
-| 核心代码行数 | ~3,500 |
-| 文档行数 | ~1,500+ |
-| 项目总行数 | ~5,000+ |
+| Python模块 | 11个（新增trainer.py, kv_cache.py） |
+| 测试文件 | 3个（新增test_training_and_cache.py） |
+| 核心代码行数 | ~4,500+ |
+| 文档行数 | ~2,300+ |
+| 项目总行数 | ~6,800+ |
 
 ---
 
