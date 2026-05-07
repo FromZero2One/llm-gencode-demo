@@ -12,7 +12,7 @@
 
 ```bash
 source venv/bin/activate
-python debug_tokenizer.py
+python scripts/debug_tokenizer.py
 ```
 
 #### 功能特性
@@ -62,13 +62,13 @@ python debug_tokenizer.py
 
 ```bash
 source venv/bin/activate
-python tokenizer_interactive.py
+python scripts/tokenizer_interactive.py
 ```
 
 或直接分析指定文本:
 
 ```bash
-python tokenizer_interactive.py "public class UserService"
+python scripts/tokenizer_interactive.py "public class UserService"
 ```
 
 #### 交互命令
@@ -116,7 +116,7 @@ Token 序列:
 
 ```bash
 source venv/bin/activate
-python tokenizer_pdb_debug.py
+python scripts/tokenizer_pdb_debug.py
 ```
 
 #### 常用 pdb 命令
@@ -161,7 +161,7 @@ pdb.set_trace()
 
 ```bash
 source venv/bin/activate
-python test_debug.py
+python scripts/test_debug.py
 ```
 
 #### 输出内容
@@ -235,7 +235,7 @@ logging.basicConfig(level=logging.WARNING)
 ### 场景1: 检查为什么某些 tokens 被识别为 UNK
 
 ```bash
-python debug_tokenizer.py
+python scripts/debug_tokenizer.py
 ```
 
 查看 "[Step 8] ⚠ 未知 Tokens" 部分，了解哪些 tokens 需要添加到词汇表。
@@ -243,7 +243,7 @@ python debug_tokenizer.py
 ### 场景2: 验证 tokenization 是否正确
 
 ```bash
-python tokenizer_interactive.py
+python scripts/tokenizer_interactive.py
 >>> your_code_here
 ```
 
@@ -252,7 +252,7 @@ python tokenizer_interactive.py
 ### 场景3: 分析词汇表覆盖情况
 
 ```bash
-python tokenizer_interactive.py
+python scripts/tokenizer_interactive.py
 >>> vocab
 ```
 
@@ -261,7 +261,7 @@ python tokenizer_interactive.py
 ### 场景4: 单步调试找出问题
 
 ```bash
-python tokenizer_pdb_debug.py
+python scripts/tokenizer_pdb_debug.py
 ```
 
 使用 pdb 命令逐步执行，检查每一步的变量值。
@@ -298,7 +298,7 @@ common_tokens = [
 完整的 debug 输出示例请运行:
 
 ```bash
-python debug_tokenizer.py 2>&1 | tee debug_output.log
+python scripts/debug_tokenizer.py 2>&1 | tee debug_output.log
 ```
 
 这将保存所有输出到 `debug_output.log` 文件供后续分析。

@@ -74,7 +74,7 @@ pip install torch numpy matplotlib seaborn
 ### 2. 验证安装
 
 ```bash
-python test_all.py
+python scripts/test_all.py
 ```
 
 预期输出：
@@ -86,7 +86,7 @@ python test_all.py
 ### 3. 运行演示
 
 ```bash
-python main.py
+python scripts/main.py
 ```
 
 推荐选项：
@@ -98,7 +98,7 @@ python main.py
 ### 4. 第一个实验
 
 ```python
-from pipeline import CodeGenerationPipeline
+from scripts.pipeline import CodeGenerationPipeline
 
 # 创建管道
 pipeline = CodeGenerationPipeline(
@@ -147,7 +147,7 @@ Token IDs: [15, 23, 156]
 #### 本项目的实现
 
 ```python
-# tokenizer.py
+# scripts/tokenizer.py
 class SimpleTokenizer:
     def __init__(self, vocab_size=1000):
         self.vocab_size = vocab_size
@@ -258,7 +258,7 @@ Transformer的注意力机制是** permutation invariant **（排列不变）的
 使用不同频率的正弦/余弦函数：
 
 ```python
-# attention.py
+# scripts/attention.py
 class PositionalEncoding(nn.Module):
     def __init__(self, d_model=128, max_len=512):
         super().__init__()
@@ -307,7 +307,7 @@ PE(pos, 2i+1) = cos(pos / 10000^(2i/d))
 #### 可视化位置编码
 
 ```python
-from visualizer import AttentionVisualizer
+from scripts.visualizer import AttentionVisualizer
 
 visualizer = AttentionVisualizer()
 pos_encoder = PositionalEncoding(d_model=128)
@@ -355,7 +355,7 @@ plt.show()
 #### Scaled Dot-Product Attention
 
 ```python
-# attention.py
+# scripts/attention.py
 def scaled_dot_product_attention(query, key, value, mask=None):
     """
     query: (batch, seq_len_q, d_k)
@@ -550,7 +550,7 @@ Output Probabilities ─────→│
 #### Encoder Layer详解
 
 ```python
-# transformer.py
+# scripts/transformer.py
 class TransformerEncoderLayer(nn.Module):
     def __init__(self, d_model=128, nhead=8, dim_feedforward=512):
         super().__init__()
@@ -961,7 +961,7 @@ class TopPSampling:
 
 ```python
 # 实验: 比较不同采样策略
-from generator import (GreedySampling, TemperatureSampling, 
+from scripts.generator import (GreedySampling, TemperatureSampling, 
                        TopKSampling, TopPSampling)
 
 strategies = [
@@ -1001,7 +1001,7 @@ Step 3: Output = "{"           → Input = "public class UserService {"
 #### 完整生成流程
 
 ```python
-# generator.py
+# scripts/generator.py
 class CodeGenerator:
     def __init__(self, model, tokenizer, device='cpu'):
         self.model = model
@@ -1131,7 +1131,7 @@ for i, sample in enumerate(samples):
 #### 后处理步骤
 
 ```python
-# postprocessor.py
+# scripts/postprocessor.py
 class CodePostProcessor:
     def process(self, code):
         steps_applied = []
@@ -1271,7 +1271,7 @@ Request 2: "public class User" → Hit cache (<0.01s) → Return cached
 #### LRU缓存实现
 
 ```python
-# cache.py
+# scripts/cache.py
 from collections import OrderedDict
 
 class GenerationCache:
@@ -1375,7 +1375,7 @@ print(f"Hit rate: {stats['hit_rate']*100:.1f}%")
 
 ## 模块详细说明
 
-### tokenizer.py (228行)
+### scripts/tokenizer.py (228行)
 
 **核心类**: `SimpleTokenizer`
 
@@ -1398,7 +1398,7 @@ print(f"Hit rate: {stats['hit_rate']*100:.1f}%")
 
 ---
 
-### attention.py (283行)
+### scripts/attention.py (283行)
 
 **核心类**: 
 - `MultiHeadAttention`: 多头注意力
@@ -1422,7 +1422,7 @@ PE(pos,2i) = sin(pos/10000^(2i/d))
 
 ---
 
-### transformer.py (429行)
+### scripts/transformer.py (429行)
 
 **核心类**:
 - `TransformerModel`: 主模型
@@ -1447,7 +1447,7 @@ Embedding → Positional Encoding → Encoder×N → Decoder×N → Output
 
 ---
 
-### generator.py (375行)
+### scripts/generator.py (375行)
 
 **核心类**:
 - `CodeGenerator`: 生成器
@@ -1468,7 +1468,7 @@ Tokenize → Forward → Sample → Append → Repeat until EOS
 
 ---
 
-### postprocessor.py (416行)
+### scripts/postprocessor.py (416行)
 
 **核心类**:
 - `CodePostProcessor`: 后处理器
@@ -1490,7 +1490,7 @@ Tokenize → Forward → Sample → Append → Repeat until EOS
 
 ---
 
-### cache.py (301行)
+### scripts/cache.py (301行)
 
 **核心类**: `GenerationCache`
 
@@ -1511,7 +1511,7 @@ Tokenize → Forward → Sample → Append → Repeat until EOS
 
 ---
 
-### pipeline.py (427行)
+### scripts/pipeline.py (427行)
 
 **核心类**: `CodeGenerationPipeline`
 
@@ -1532,7 +1532,7 @@ Tokenizer → Transformer → Generator → PostProcessor → Cache
 
 ---
 
-### visualizer.py (376行)
+### scripts/visualizer.py (376行)
 
 **核心类**: `AttentionVisualizer`
 

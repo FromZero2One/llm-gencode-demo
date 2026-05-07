@@ -4,11 +4,11 @@
 
 ### **1. 交互式主菜单 (推荐)** ⭐
 
-运行 [`main.py`](file:///home/wsm/codes/llm-gencode-demo/main.py) 进入交互式菜单：
+运行 [`scripts/main.py`](file:///home/wsm/codes/llm-gencode-demo/scripts/main.py) 进入交互式菜单：
 
 ```bash
 source venv/bin/activate
-python main.py
+python scripts/main.py
 ```
 
 **可用选项**:
@@ -28,7 +28,7 @@ python main.py
 #### **演示1: 基本代码生成流程**
 ```bash
 source venv/bin/activate
-echo "1" | python main.py
+echo "1" | python scripts/main.py
 ```
 
 **展示内容**:
@@ -73,7 +73,7 @@ echo "1" | python main.py
 
 #### **完整分析**
 ```bash
-python debug_tokenizer.py
+python scripts/debug_tokenizer.py
 ```
 
 **功能**:
@@ -85,7 +85,7 @@ python debug_tokenizer.py
 
 #### **交互式调试**
 ```bash
-python tokenizer_interactive.py
+python scripts/tokenizer_interactive.py
 ```
 
 **使用**:
@@ -98,7 +98,7 @@ python tokenizer_interactive.py
 
 或直接分析:
 ```bash
-python tokenizer_interactive.py "public class UserService"
+python scripts/tokenizer_interactive.py "public class UserService"
 ```
 
 ---
@@ -106,7 +106,7 @@ python tokenizer_interactive.py "public class UserService"
 ### **4. 完整 Pipeline Debug**
 
 ```bash
-python test_debug.py
+python scripts/test_debug.py
 ```
 
 **展示**:
@@ -126,21 +126,21 @@ python test_debug.py
 source venv/bin/activate
 
 # 运行基本演示（自动选择选项1）
-python main.py <<< "1"
+python scripts/main.py <<< "1"
 ```
 
 ### **查看详细的 Tokenizer 分析**
 
 ```bash
 # 运行 tokenizer 完整分析
-python debug_tokenizer.py 2>&1 | head -100
+python scripts/debug_tokenizer.py 2>&1 | head -100
 ```
 
 ### **交互式体验**
 
 ```bash
 # 进入交互模式
-python main.py <<< "6"
+python scripts/main.py <<< "6"
 
 # 然后输入您的 prompt
 >>> public class UserController
@@ -199,7 +199,7 @@ python main.py <<< "6"
 
 ### **修改测试 prompts**
 
-编辑 [`main.py`](file:///home/wsm/codes/llm-gencode-demo/main.py:51-L55):
+编辑 [`scripts/main.py`](file:///home/wsm/codes/llm-gencode-demo/scripts/main.py:51-L55):
 
 ```python
 test_prompts = [
@@ -247,9 +247,9 @@ pipeline = CodeGenerationPipeline(
 
 ## 💡 提示
 
-1. **首次运行**: 建议使用 `echo "1" | python main.py` 查看基本流程
-2. **深入学习**: 运行 `python debug_tokenizer.py` 了解 tokenization 细节
-3. **实验**: 使用交互模式 `python main.py <<< "6"` 尝试自己的 prompts
+1. **首次运行**: 建议使用 `echo "1" | python scripts/main.py` 查看基本流程
+2. **深入学习**: 运行 `python scripts/debug_tokenizer.py` 了解 tokenization 细节
+3. **实验**: 使用交互模式 `python scripts/main.py <<< "6"` 尝试自己的 prompts
 4. **性能**: 生产环境设置 `debug_mode=False`
 
 ---

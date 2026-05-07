@@ -1010,23 +1010,23 @@ UnicodeEncodeError: 'gbk' codec can't encode character '\u2713'
 
 ```bash
 # 运行单元测试
-python test_all.py
+python scripts/test_all.py
 
 # 运行性能测试
-python test_performance.py
+python scripts/test_performance.py
 
 # 运行主程序演示
-python main.py
+python scripts/main.py
 
 # 单独测试模块
-python tokenizer.py
-python attention.py
-python transformer.py
-python generator.py
-python postprocessor.py
-python cache.py
-python pipeline.py
-python visualizer.py
+python scripts/tokenizer.py
+python scripts/attention.py
+python scripts/transformer.py
+python scripts/generator.py
+python scripts/postprocessor.py
+python scripts/cache.py
+python scripts/pipeline.py
+python scripts/visualizer.py
 ```
 
 ### B. 测试数据
