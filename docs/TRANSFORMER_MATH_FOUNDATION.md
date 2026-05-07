@@ -7,8 +7,11 @@
 ## 📚 目录
 
 1. [线性代数基础](#1-线性代数基础)
+   - [1.2.4 广播机制](#124-广播机制broadcasting)
 2. [微积分与梯度](#2-微积分与梯度)
+   - [2.3.4 数值稳定性技巧](#234-数值稳定性技巧)
 3. [概率论与信息论](#3-概率论与信息论)
+   - [3.2.X 最大似然估计](#32x-最大似然估计mle)
 4. [优化理论基础](#4-优化理论基础)
 5. [综合练习题](#5-综合练习题)
 6. [参考答案](#6-参考答案)
@@ -143,6 +146,137 @@ I = [[1, 0, 0],
 D = [[d₁, 0,  0 ],
      [0,  d₂, 0 ],
      [0,  0,  d₃]]
+```
+
+#### 1.2.4 广播机制（Broadcasting）⭐⭐⭐⭐⭐
+
+**定义**：
+广播是NumPy/PyTorch中对不同形状的数组进行算术运算时的自动扩展机制。
+
+**广播规则**：
+1. 从**最后面的维度**开始比较
+2. 如果两个维度**相等**，或者其中一个是**1**，则可以广播
+3. 输出维度取两个维度的**最大值**
+
+**示例1：基本广播**
+```
+A: (3, 4, 5)
+B: (    4, 1)
+结果: (3, 4, 5)  # B被广播到(3, 4, 5)
+
+过程：
+- 维度2: 5 vs 1 → 可以广播，结果5
+- 维度1: 4 vs 4 → 相等，结果4
+- 维度0: 3 vs (无) → 可以广播，结果3
+```
+
+**示例2：标量广播**
+```
+A: (3, 4)
+b: 5  (标量)
+结果: (3, 4)
+
+b被广播到与A相同形状，每个元素都是5
+```
+
+**示例3：不可广播的情况**
+```
+A: (3, 4)
+B: (3, 5)
+结果: 错误！维度1不匹配（4 ≠ 5，且都不是1）
+```
+
+**在Transformer中的应用**：
+
+```python
+# 应用1：位置编码加到embedding
+embedding:      (batch_size, seq_len, d_model)
+pos_encoding:   (1,         seq_len, d_model)  
+# pos_encoding会被广播到所有batch
+result:         (batch_size, seq_len, d_model)
+
+# 应用2：LayerNorm
+x:      (batch, seq_len, d_model)
+mean:   (batch, seq_len, 1)       # 沿d_model维度求均值
+std:    (batch, seq_len, 1)       # 沿d_model维度求标准差
+# mean和std会广播到d_model维度
+normalized: (batch, seq_len, d_model)
+
+# 应用3：注意力mask
+scores:     (batch, nhead, seq_len, seq_len)
+causal_mask:(1,     1,     seq_len, seq_len)
+# mask会广播到所有batch和head
+masked_scores: (batch, nhead, seq_len, seq_len)
+
+# 应用4：缩放因子
+d_k = 64
+scores: (batch, nhead, seq_len, seq_len)
+scale:  √d_k (标量)
+# 标量广播到所有维度
+scaled_scores = scores / math.sqrt(d_k)
+```
+
+**实际代码示例**：
+
+```python
+import torch
+
+# 示例：位置编码的广播
+batch_size = 2
+seq_len = 10
+d_model = 128
+
+embedding = torch.randn(batch_size, seq_len, d_model)
+pos_encoding = torch.randn(1, seq_len, d_model)  # 注意第一个维度是1
+
+# 广播加法
+result = embedding + pos_encoding  # 自动广播
+print(result.shape)  # torch.Size([2, 10, 128])
+
+# 等价于手动扩展
+pos_encoding_expanded = pos_encoding.expand(batch_size, -1, -1)
+result_manual = embedding + pos_encoding_expanded
+print(torch.allclose(result, result_manual))  # True
+```
+
+**常见错误**：
+
+```python
+# 错误1：维度不匹配
+A = torch.randn(3, 4)
+B = torch.randn(3, 5)
+C = A + B  # RuntimeError!
+
+# 错误2：忘记unsqueeze
+x = torch.randn(10, 64)
+mean = x.mean(dim=1)  # shape: (10,)
+normalized = x - mean  # 可能不会按预期广播！
+
+# 正确做法
+mean = x.mean(dim=1, keepdim=True)  # shape: (10, 1)
+normalized = x - mean  # 正确广播
+```
+
+**调试技巧**：
+
+```python
+# 检查两个tensor是否可以广播
+def can_broadcast(shape1, shape2):
+    # 补齐较短的形状
+    if len(shape1) < len(shape2):
+        shape1 = (1,) * (len(shape2) - len(shape1)) + shape1
+    elif len(shape2) < len(shape1):
+        shape2 = (1,) * (len(shape1) - len(shape2)) + shape2
+    
+    # 检查每个维度
+    for s1, s2 in zip(shape1, shape2):
+        if s1 != s2 and s1 != 1 and s2 != 1:
+            return False
+    return True
+
+# 测试
+print(can_broadcast((3, 4, 5), (4, 1)))  # True
+print(can_broadcast((3, 4), (3, 5)))     # False
 ```
 
 ---
@@ -414,6 +548,140 @@ J = diag(s) - s·s^T
 # ∂loss/∂logits = softmax(logits) - one_hot(target)
 ```
 
+#### 2.3.4 数值稳定性技巧 ⭐⭐⭐⭐⭐
+
+在实际实现中，直接计算softmax和log可能会导致数值问题。
+
+**问题1：Softmax溢出**
+
+当x的值很大时，exp(x)会溢出：
+
+```python
+# 错误实现
+import numpy as np
+def unstable_softmax(x):
+    return np.exp(x) / np.sum(np.exp(x))
+
+x = np.array([1000, 1001, 1002])
+unstable_softmax(x)  # RuntimeWarning: overflow encountered in exp
+```
+
+**解决方案：减去最大值**
+
+```python
+def stable_softmax(x):
+    x_max = np.max(x)
+    # 减去最大值不会改变softmax的结果
+    return np.exp(x - x_max) / np.sum(np.exp(x - x_max))
+
+x = np.array([1000, 1001, 1002])
+result = stable_softmax(x)  # [0.090, 0.245, 0.665] ✓
+```
+
+**数学证明**：
+
+```
+softmax(x)_i = e^(x_i) / Σ e^(x_j)
+
+令 c = max(x)，则：
+
+softmax(x)_i = e^(x_i) / Σ e^(x_j)
+             = e^(x_i - c) · e^c / (Σ e^(x_j - c) · e^c)
+             = e^(x_i - c) / Σ e^(x_j - c)
+             = softmax(x - c)_i
+```
+
+所以减去常数c不改变softmax的结果！
+
+**问题2：Log下溢**
+
+当p很小时，log(p)会趋向负无穷：
+
+```python
+p = 1e-300
+np.log(p)  # -690.77... (可能下溢)
+```
+
+**解决方案：Log-Sum-Exp Trick**
+
+计算 log(Σ exp(x)) 时的稳定方法：
+
+```python
+def log_sum_exp(x):
+    x_max = np.max(x)
+    return x_max + np.log(np.sum(np.exp(x - x_max)))
+
+# 应用：计算交叉熵损失
+def stable_cross_entropy(logits, target):
+    # logits: (batch, vocab_size)
+    # target: (batch,) 类别索引
+    
+    # 使用log-sum-exp计算归一化常数
+    lse = log_sum_exp(logits, axis=1)  # (batch,)
+    
+    # 计算正确类别的logit
+    correct_logits = logits[np.arange(len(target)), target]
+    
+    # 交叉熵 = -log(softmax) = lse - correct_logit
+    loss = lse - correct_logits
+    
+    return loss.mean()
+```
+
+**问题3：梯度消失/爆炸**
+
+深层网络中，梯度通过链式法则连乘可能导致：
+- **梯度消失**：梯度趋近于0，前面的层无法学习
+- **梯度爆炸**：梯度变得极大，训练不稳定
+
+**解决方案**：
+
+1. **残差连接**：`output = x + f(x)`，保证梯度可以直接流动
+2. **Layer Normalization**：稳定激活值的分布
+3. **梯度裁剪**：限制梯度的最大值
+
+```python
+# 梯度裁剪示例
+import torch.nn as nn
+
+model = YourModel()
+optimizer = torch.optim.Adam(model.parameters())
+
+for batch in dataloader:
+    optimizer.zero_grad()
+    loss = model(batch)
+    loss.backward()
+    
+    # 裁剪梯度
+    torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+    
+    optimizer.step()
+```
+
+**在PyTorch中的最佳实践**：
+
+```python
+# PyTorch的softmax已经实现了数值稳定性
+torch.softmax(x, dim=-1)  # 内部使用了stable softmax
+
+# CrossEntropyLoss结合了LogSoftmax和NLLLoss，数值稳定
+loss_fn = nn.CrossEntropyLoss()
+loss = loss_fn(logits, targets)  # 推荐做法
+
+# 避免这样做（数值不稳定）
+probs = torch.softmax(logits, dim=-1)
+loss = -torch.log(probs[targets]).mean()  # 不推荐
+```
+
+**总结**：
+
+| 问题 | 原因 | 解决方案 |
+|------|------|----------|
+| Softmax溢出 | exp(x)太大 | 减去最大值 |
+| Log下溢 | log(p)太小 | Log-sum-exp trick |
+| 梯度消失 | 连乘导致指数衰减 | 残差连接、LayerNorm |
+| 梯度爆炸 | 连乘导致指数增长 | 梯度裁剪 |
+
 ---
 
 ### 2.4 链式法则在反向传播中的应用
@@ -542,6 +810,192 @@ P(X₁=n₁, X₂=n₂, ..., Xₖ=nₖ) = (n!/(n₁!n₂!...nₖ!)) · p₁^n₁
 # vocab_size = k, probabilities = [p₁, p₂, ..., pₖ]
 next_token = torch.multinomial(probs, num_samples=1)
 ```
+
+#### 3.2.X 最大似然估计（MLE）⭐⭐⭐⭐⭐
+
+**核心思想**：
+
+选择使观测数据出现概率最大的模型参数。
+
+**直观理解**：
+
+假设我们有一个硬币，抛了10次，7次正面，3次反面。
+
+- 如果假设 P(正面)=0.5，则观察到这个结果的概率较小
+- 如果假设 P(正面)=0.7，则观察到这个结果的概率较大
+
+MLE会选择 P(正面)=0.7，因为它更能解释观测数据。
+
+**数学形式化**：
+
+给定数据集 D = {x₁, x₂, ..., xₙ}，假设数据来自分布 P(x|θ)，其中 θ 是参数。
+
+**似然函数**：
+```
+L(θ) = P(D | θ) = Πᵢ P(xᵢ | θ)
+```
+
+**对数似然**（更常用）：
+```
+log L(θ) = Σᵢ log P(xᵢ | θ)
+```
+
+使用对数的原因：
+1. 乘积变求和，更容易计算
+2. 避免数值下溢（很多小概率相乘会趋近于0）
+3. 对数函数单调递增，最大化log L等价于最大化L
+
+**MLE估计**：
+```
+θ_MLE = argmax_θ L(θ) = argmax_θ log L(θ)
+```
+
+**求解方法**：
+
+通常通过求导并令导数为0来求解：
+
+```
+∂/∂θ log L(θ) = 0
+```
+
+**示例1：伯努利分布的MLE**
+
+假设数据来自伯努利分布 Bernoulli(p)：
+
+```
+P(X=1) = p
+P(X=0) = 1-p
+```
+
+观测到 n 个样本，其中 k 个为1，n-k 个为0。
+
+似然函数：
+```
+L(p) = p^k · (1-p)^(n-k)
+```
+
+对数似然：
+```
+log L(p) = k·log(p) + (n-k)·log(1-p)
+```
+
+求导：
+```
+∂/∂p log L(p) = k/p - (n-k)/(1-p) = 0
+```
+
+解得：
+```
+p_MLE = k/n
+```
+
+即：MLE估计就是样本中1的比例！
+
+**示例2：高斯分布的MLE**
+
+假设数据来自 N(μ, σ²)，可以推导出：
+
+```
+μ_MLE = (1/n) Σ xᵢ  （样本均值）
+σ²_MLE = (1/n) Σ (xᵢ - μ)²  （样本方差）
+```
+
+**在语言模型中的应用** ⭐⭐⭐⭐⭐
+
+语言模型的目标是预测下一个词的概率：
+
+```
+P(w_t | w₁, w₂, ..., w_{t-1})
+```
+
+给定语料库 C = {w₁, w₂, ..., w_N}，我们希望找到模型参数 θ 使得语料库的似然最大：
+
+```
+L(θ) = Πᵢ P(wᵢ | contextᵢ; θ)
+```
+
+对数似然：
+```
+log L(θ) = Σᵢ log P(wᵢ | contextᵢ; θ)
+```
+
+**训练目标**：
+```
+θ* = argmax_θ Σᵢ log P(wᵢ | contextᵢ; θ)
+```
+
+这等价于**最小化交叉熵损失**：
+
+```
+Loss = -Σᵢ log P(wᵢ | contextᵢ; θ)
+     = -log L(θ)
+```
+
+所以：
+- **最大化似然** = **最小化负对数似然** = **最小化交叉熵**
+
+**实际代码**：
+
+```python
+import torch.nn as nn
+
+# 语言模型的训练
+model = LanguageModel()
+optimizer = torch.optim.Adam(model.parameters())
+loss_fn = nn.CrossEntropyLoss()  # 这就是负对数似然
+
+for batch in dataloader:
+    # logits: (batch, seq_len, vocab_size)
+    # targets: (batch, seq_len)
+    logits = model(batch.input)
+    
+    # 计算负对数似然（交叉熵）
+    loss = loss_fn(
+        logits.view(-1, vocab_size),  # (batch*seq_len, vocab_size)
+        targets.view(-1)               # (batch*seq_len,)
+    )
+    
+    # 最小化负对数似然 = 最大化似然
+    optimizer.zero_grad()
+    loss.backward()
+    optimizer.step()
+```
+
+**MLE的性质**：
+
+✅ **一致性**：当样本量 n→∞ 时，θ_MLE → θ_true  
+✅ **渐近正态性**：在大样本下，θ_MLE 服从正态分布  
+✅ **效率性**：在所有无偏估计中，MLE的方差最小  
+
+⚠️ **缺点**：
+- 可能过拟合（特别是小样本时）
+- 不考虑先验知识
+- 对于复杂模型，优化可能困难
+
+**与MAP的关系**：
+
+MLE的一个扩展是**最大后验估计（MAP）**：
+
+```
+θ_MAP = argmax_θ P(θ | D)
+      = argmax_θ P(D | θ) · P(θ)  （贝叶斯定理）
+      = argmax_θ [log P(D | θ) + log P(θ)]
+```
+
+MAP = MLE + 正则化项（log P(θ)）
+
+当 P(θ) 是均匀分布时，MAP = MLE。
+
+**总结**：
+
+| 概念 | 公式 | 意义 |
+|------|------|------|
+| 似然函数 | L(θ) = P(D\|θ) | 参数θ解释数据D的可能性 |
+| 对数似然 | log L(θ) = Σ log P(xᵢ\|θ) | 更易计算，避免下溢 |
+| MLE | θ_MLE = argmax log L(θ) | 最可能产生数据的参数 |
+| 语言模型训练 | min -Σ log P(wᵢ\|context) | 等价于最大化似然 |
+
+---
 
 #### 3.2.3 高斯分布（正态分布）
 
@@ -1460,6 +1914,119 @@ print(x.grad)  # 应该全为 0，因为 softmax 输出的和恒为 1
 
 ---
 
+## 📝 文档更新日志
+
+### v1.1 (2026-05-07)
+
+**新增内容**：
+- ✅ 1.2.4 广播机制（Broadcasting）- PyTorch/NumPy核心概念
+- ✅ 2.3.4 数值稳定性技巧 - Softmax溢出、Log下溢、梯度问题
+- ✅ 3.2.X 最大似然估计（MLE）- 语言模型训练理论基础
+
+**改进**：
+- 更新了目录，标注了新增章节
+- 增加了更多实际代码示例
+- 补充了PyTorch最佳实践
+
+### v1.0 (2026-05-07)
+
+**初始版本**：
+- 线性代数基础
+- 微积分与梯度
+- 概率论与信息论
+- 优化理论基础
+- 综合练习题和答案
+
+---
+
+## 🔮 未来计划
+
+### 待补充内容（按优先级）
+
+**P0 - 高优先级**：
+- [ ] 矩阵的迹（Trace）及其应用
+- [ ] Jacobian和Hessian矩阵
+- [ ] 泰勒展开在优化中的应用
+- [ ] 凸优化基础
+
+**P1 - 中优先级**：
+- [ ] 中心极限定理
+- [ ] 贝叶斯定理的实际应用
+- [ ] 完整的反向传播推导示例
+- [ ] 更多编程实践题
+
+**P2 - 低优先级（进阶）**：
+- [ ] 稀疏矩阵运算
+- [ ] RoPE（旋转位置编码）的数学原理
+- [ ] Flash Attention的复杂度分析
+- [ ] 混合精度训练的数值分析
+
+---
+
+## 💡 学习建议
+
+### 如何使用本文档
+
+1. **系统性学习**：按章节顺序阅读，不要跳读
+2. **动手实践**：每个公式都要自己推导一遍
+3. **完成练习**：做完每章的练习题再进入下一章
+4. **运行验证**：使用 `verify_math.py` 验证书中计算
+5. **联系实际**：思考每个概念在Transformer代码中的体现
+
+### 推荐学习节奏
+
+- **快速浏览**（1-2天）：了解整体框架
+- **深入学习**（4-6周）：按7周计划系统学习
+- **反复复习**（持续）：定期回顾重要公式
+- **实践应用**（贯穿始终）：边学边写代码
+
+### 遇到困难怎么办
+
+1. **卡住了**：回到上一节，巩固基础
+2. **不理解**：查找更多资源（视频、其他书籍）
+3. **忘记了**：制作公式卡片，经常复习
+4. **有疑问**：记录下来，集中求解
+
+---
+
+## 📚 扩展阅读
+
+### 推荐书籍
+
+1. **《深度学习》**（花书）- Ian Goodfellow et al.
+   - 第2章：线性代数
+   - 第4章：数值计算
+   - 第8章：深度前馈网络
+
+2. **《Pattern Recognition and Machine Learning》** - Christopher Bishop
+   - 全面的机器学习数学基础
+
+3. **《Mathematics for Machine Learning》** - Deisenroth et al.
+   - 专门为ML设计的数学教材
+   - 免费在线版可用
+
+### 在线资源
+
+1. **3Blue1Brown**（YouTube/B站）
+   - 线性代数的本质
+   - 微积分的本质
+   - 神经网络的本质
+
+2. **Stanford CS229**
+   - 机器学习课程
+   - 数学复习部分非常详细
+
+3. **PyTorch官方教程**
+   - 深入理解autograd
+   - 数值稳定性最佳实践
+
+---
+
 **祝你学习顺利！** 🎓
 
-*最后更新：2026-05-07*
+*最后更新：2026-05-07 (v1.1)*
+*文档版本：v1.1*
+*总行数：~1920行*
+*包含章节：6个主要章节 + 3个新增专题*
+*练习题数量：20+*
+*验证测试：10/10通过*
