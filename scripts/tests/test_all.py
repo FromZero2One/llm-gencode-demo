@@ -3,7 +3,11 @@
 """
 
 import sys
+import os
 import traceback
+
+# 添加父目录（scripts）到Python路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 
 def test_tokenizer():

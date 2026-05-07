@@ -8,7 +8,8 @@ llm-codegen-demo/
 │   ├── README.md           # 主要文档
 │   ├── QUICK_START.md      # 快速开始指南
 │   ├── TEST_REPORT.md      # 测试报告
-│   └── TOKENIZER_DEBUG_GUIDE.md  # Tokenizer调试指南
+│   ├── TOKENIZER_DEBUG_GUIDE.md  # Tokenizer调试指南
+│   └── PROJECT_STRUCTURE.md  # 项目结构说明
 ├── scripts/                # 脚本目录
 │   ├── __init__.py         # Python包初始化文件
 │   ├── main.py             # 主程序入口
@@ -20,11 +21,13 @@ llm-codegen-demo/
 │   ├── cache.py            # 缓存机制实现
 │   ├── pipeline.py         # 完整管道实现
 │   ├── visualizer.py       # 可视化工具实现
-│   ├── test_all.py         # 完整测试套件
-│   ├── test_performance.py # 性能测试
-│   ├── debug_tokenizer.py  # Tokenizer调试工具
-│   ├── tokenizer_interactive.py  # 交互式Tokenizer
-│   └── tokenizer_pdb_debug.py    # PDB调试示例
+│   └── tests/              # 测试和调试目录
+│       ├── __init__.py     # 测试包初始化文件
+│       ├── test_all.py         # 完整测试套件
+│       ├── test_performance.py # 性能测试
+│       ├── debug_tokenizer.py  # Tokenizer调试工具
+│       ├── tokenizer_interactive.py  # 交互式Tokenizer
+│       └── tokenizer_pdb_debug.py    # PDB调试示例
 ├── run_demo.py             # 项目入口脚本
 ├── requirements.txt        # 依赖包列表
 ├── .gitignore              # Git忽略文件

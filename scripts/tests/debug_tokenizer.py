@@ -17,8 +17,13 @@ Tokenizer Debug 工具
 """
 
 import sys
+import os
 import logging
 from typing import List, Dict
+
+# 添加父目录（scripts）到Python路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
 from tokenizer import SimpleTokenizer
 
 # 配置日志

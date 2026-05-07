@@ -73,7 +73,7 @@ echo "1" | python scripts/main.py
 
 #### **完整分析**
 ```bash
-python scripts/debug_tokenizer.py
+python scripts/tests/debug_tokenizer.py
 ```
 
 **功能**:
@@ -85,7 +85,7 @@ python scripts/debug_tokenizer.py
 
 #### **交互式调试**
 ```bash
-python scripts/tokenizer_interactive.py
+python scripts/tests/tokenizer_interactive.py
 ```
 
 **使用**:
@@ -98,7 +98,7 @@ python scripts/tokenizer_interactive.py
 
 或直接分析:
 ```bash
-python scripts/tokenizer_interactive.py "public class UserService"
+python scripts/tests/tokenizer_interactive.py "public class UserService"
 ```
 
 ---
@@ -133,7 +133,7 @@ python scripts/main.py <<< "1"
 
 ```bash
 # 运行 tokenizer 完整分析
-python scripts/debug_tokenizer.py 2>&1 | head -100
+python scripts/tests/debug_tokenizer.py 2>&1 | head -100
 ```
 
 ### **交互式体验**
@@ -248,7 +248,7 @@ pipeline = CodeGenerationPipeline(
 ## 💡 提示
 
 1. **首次运行**: 建议使用 `echo "1" | python scripts/main.py` 查看基本流程
-2. **深入学习**: 运行 `python scripts/debug_tokenizer.py` 了解 tokenization 细节
+2. **深入学习**: 运行 `python scripts/tests/debug_tokenizer.py` 了解 tokenization 细节
 3. **实验**: 使用交互模式 `python scripts/main.py <<< "6"` 尝试自己的 prompts
 4. **性能**: 生产环境设置 `debug_mode=False`
 

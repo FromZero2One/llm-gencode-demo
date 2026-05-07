@@ -74,7 +74,7 @@ pip install torch numpy matplotlib seaborn
 ### 2. 验证安装
 
 ```bash
-python scripts/test_all.py
+python scripts/tests/test_all.py
 ```
 
 预期输出：

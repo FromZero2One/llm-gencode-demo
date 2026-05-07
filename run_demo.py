@@ -59,7 +59,11 @@ def execute_choice(choice):
         print("感谢使用！再见！")
         exit(0)
     elif choice == "1":
-        import test_all
+        # 运行测试
+        import subprocess
+        import sys
+        tests_dir = os.path.join(os.path.dirname(__file__), 'scripts', 'tests')
+        subprocess.run([sys.executable, os.path.join(tests_dir, 'test_all.py')])
     elif choice == "2":
         # 直接运行main模块
         import subprocess
@@ -67,20 +71,25 @@ def execute_choice(choice):
         script_dir = os.path.join(os.path.dirname(__file__), 'scripts')
         subprocess.run([sys.executable, os.path.join(script_dir, 'main.py')])
     elif choice == "3":
-        import test_performance
+        # 运行性能测试
+        import subprocess
+        import sys
+        tests_dir = os.path.join(os.path.dirname(__file__), 'scripts', 'tests')
+        subprocess.run([sys.executable, os.path.join(tests_dir, 'test_performance.py')])
     elif choice == "4":
-        import debug_tokenizer
+        # 运行Tokenizer调试
+        import subprocess
+        import sys
+        tests_dir = os.path.join(os.path.dirname(__file__), 'scripts', 'tests')
+        subprocess.run([sys.executable, os.path.join(tests_dir, 'debug_tokenizer.py')])
     elif choice == "5":
-        import tokenizer_interactive
+        # 运行交互式Tokenizer
+        import subprocess
+        import sys
+        tests_dir = os.path.join(os.path.dirname(__file__), 'scripts', 'tests')
+        subprocess.run([sys.executable, os.path.join(tests_dir, 'tokenizer_interactive.py')])
     elif choice == "6":
-        # 检查test_debug是否存在
-        debug_file = os.path.join(os.path.dirname(__file__), 'scripts', 'test_debug.py')
-        if os.path.exists(debug_file):
-            import subprocess
-            import sys
-            subprocess.run([sys.executable, debug_file])
-        else:
-            print("调试脚本不存在，请运行 python scripts/main.py 并选择详细模式")
+        print("调试模式：请直接运行 python scripts/main.py 并查看详细日志")
     else:
         print("无效选项，请重新输入。")
 
