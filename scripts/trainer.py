@@ -20,6 +20,7 @@ import torch.nn as nn
 import torch.optim as optim
 from torch.utils.data import Dataset, DataLoader
 import numpy as np
+import math
 import os
 import json
 from typing import Dict, List, Tuple, Optional
@@ -120,9 +121,15 @@ class CrossEntropyLoss(nn.Module):
         if self.ignore_index >= 0:
             mask = (targets_flat != self.ignore_index).float()
             loss = loss * mask
-        
-        # 步骤4: 求平均（只考虑有效位置）
-        loss = loss.sum() / max(mask.sum(), 1) if self.ignore_index >= 0 else loss.mean()
+            
+            # 求平均（只考虑有效位置）
+            num_valid = mask.sum()
+            if num_valid > 0:
+                loss = loss.sum() / num_valid
+            else:
+                loss = torch.tensor(0.0, device=loss.device)
+        else:
+            loss = loss.mean()
         
         return loss
 
@@ -518,7 +525,16 @@ class Trainer:
             targets = targets.to(self.device)
             
             # 前向传播
-            outputs = self.model(inputs)
+            # TransformerModel需要src和tgt，对于语言建模任务，我们使用inputs作为src和tgt
+            if hasattr(self.model, 'forward') and 'tgt' in self.model.forward.__code__.co_varnames:
+                # Encoder-Decoder架构：src=inputs, tgt=targets
+                # 生成tgt_mask（因果掩码）
+                tgt_seq_len = targets.size(1)
+                tgt_mask = self.model.generate_square_subsequent_mask(tgt_seq_len).to(self.device)
+                outputs, _, _ = self.model(inputs, targets, tgt_mask=tgt_mask)
+            else:
+                # 纯Decoder架构
+                outputs = self.model(inputs)
             
             # 计算损失
             loss = self.loss_fn(outputs, targets)
@@ -572,7 +588,14 @@ class Trainer:
             inputs = inputs.to(self.device)
             targets = targets.to(self.device)
             
-            outputs = self.model(inputs)
+            # 前向传播（与train_epoch相同逻辑）
+            if hasattr(self.model, 'forward') and 'tgt' in self.model.forward.__code__.co_varnames:
+                tgt_seq_len = targets.size(1)
+                tgt_mask = self.model.generate_square_subsequent_mask(tgt_seq_len).to(self.device)
+                outputs, _, _ = self.model(inputs, targets, tgt_mask=tgt_mask)
+            else:
+                outputs = self.model(inputs)
+            
             loss = self.loss_fn(outputs, targets)
             
             total_loss += loss.item()
