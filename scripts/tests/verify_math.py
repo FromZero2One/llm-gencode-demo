@@ -2,8 +2,15 @@
 验证 TRANSFORMER_MATH_FOUNDATION.md 中的所有数学计算和公式
 """
 
+import sys
+import os
 import numpy as np
 import torch
+
+# 添加父目录（scripts）到Python路径
+sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from logger import logging_context
 
 def verify_matrix_multiplication():
     """验证练习 1.1：矩阵乘法"""
@@ -417,5 +424,7 @@ def main():
 
 
 if __name__ == "__main__":
-    success = main()
-    exit(0 if success else 1)
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        success = main()
+        exit(0 if success else 1)

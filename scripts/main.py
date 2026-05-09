@@ -17,6 +17,7 @@ import sys
 import logging
 from pipeline import CodeGenerationPipeline
 from visualizer import AttentionVisualizer
+from logger import logging_context
 
 # 配置日志系统
 logging.basicConfig(
@@ -344,4 +345,6 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        main()

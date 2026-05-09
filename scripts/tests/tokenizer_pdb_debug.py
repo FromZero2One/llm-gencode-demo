@@ -11,6 +11,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tokenizer import SimpleTokenizer
+from logger import logging_context
 
 
 def debug_with_breakpoints():
@@ -126,36 +127,36 @@ def interactive_debug_example():
 
 
 if __name__ == '__main__':
-    import sys
-    
-    if len(sys.argv) > 1:
-        mode = sys.argv[1]
-        
-        if mode == '1':
-            debug_with_breakpoints()
-        elif mode == '2':
-            debug_specific_function()
-        elif mode == '3':
-            interactive_debug_example()
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        if len(sys.argv) > 1:
+            mode = sys.argv[1]
+            
+            if mode == '1':
+                debug_with_breakpoints()
+            elif mode == '2':
+                debug_specific_function()
+            elif mode == '3':
+                interactive_debug_example()
+            else:
+                print("用法: python tokenizer_pdb_debug.py [1|2|3]")
+                print("  1 - 使用断点调试")
+                print("  2 - 调试特定函数")
+                print("  3 - 交互式调试")
         else:
-            print("用法: python tokenizer_pdb_debug.py [1|2|3]")
-            print("  1 - 使用断点调试")
-            print("  2 - 调试特定函数")
-            print("  3 - 交互式调试")
-    else:
-        # 默认运行模式1
-        print("选择调试模式:")
-        print("  1. 使用断点调试 (推荐)")
-        print("  2. 调试特定函数")
-        print("  3. 交互式调试")
-        
-        choice = input("\n请选择 (1-3): ").strip()
-        
-        if choice == '1':
-            debug_with_breakpoints()
-        elif choice == '2':
-            debug_specific_function()
-        elif choice == '3':
-            interactive_debug_example()
-        else:
-            print("无效选择")
+            # 默认运行模式1
+            print("选择调试模式:")
+            print("  1. 使用断点调试 (推荐)")
+            print("  2. 调试特定函数")
+            print("  3. 交互式调试")
+            
+            choice = input("\n请选择 (1-3): ").strip()
+            
+            if choice == '1':
+                debug_with_breakpoints()
+            elif choice == '2':
+                debug_specific_function()
+            elif choice == '3':
+                interactive_debug_example()
+            else:
+                print("无效选择")

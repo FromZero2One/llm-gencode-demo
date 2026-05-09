@@ -3,10 +3,12 @@ Transformer模型核心架构
 实现完整的Encoder-Decoder结构用于代码生成
 """
 
+import sys
 import torch
 import torch.nn as nn
 import math
 from attention import MultiHeadAttention, PositionalEncoding
+from logger import logging_context
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -906,55 +908,62 @@ class TransformerModel(nn.Module):
 
 # 测试代码
 if __name__ == '__main__':
-    print("="*60)
-    print("测试Transformer模型")
-    print("="*60)
-    
-    # 参数
-    vocab_size = 1000
-    d_model = 128
-    nhead = 8
-    batch_size = 1
-    src_seq_len = 20
-    tgt_seq_len = 15
-    
-    # 创建模型
-    model = TransformerModel(
-        vocab_size=vocab_size,
-        d_model=d_model,
-        nhead=nhead,
-        num_encoder_layers=2,
-        num_decoder_layers=2
-    )
-    
-    # 创建模拟输入
-    src = torch.randint(0, vocab_size, (batch_size, src_seq_len))
-    tgt = torch.randint(0, vocab_size, (batch_size, tgt_seq_len))
-    
-    print(f"\n输入:")
-    print(f"  Source shape: {src.shape}")
-    print(f"  Target shape: {tgt.shape}")
-    
-    # 创建掩码
-    src_mask = torch.ones(batch_size, 1, 1, src_seq_len)
-    tgt_mask = model.generate_square_subsequent_mask(tgt_seq_len)
-    
-    print(f"\nMasks:")
-    print(f"  Source mask shape: {src_mask.shape}")
-    print(f"  Target mask shape: {tgt_mask.shape}")
-    
-    # 前向传播
-    logits, enc_weights, dec_weights = model(src, tgt, src_mask, tgt_mask)
-    
-    print(f"\n输出:")
-    print(f"  Logits shape: {logits.shape}")
-    print(f"  Vocabulary size: {vocab_size}")
-    
-    # 转换为概率
-    probs = torch.softmax(logits, dim=-1)
-    print(f"  Probabilities sum (should be 1.0): {probs.sum(dim=-1).mean().item():.4f}")
-    
-    # 获取最可能的token
-    predicted_tokens = torch.argmax(logits, dim=-1)
-    print(f"  Predicted tokens shape: {predicted_tokens.shape}")
-    print(f"  Sample predicted token IDs: {predicted_tokens[0, :5].tolist()}")
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        print("="*60)
+        print("测试Transformer模型")
+        print("="*60)
+        
+        # 参数
+        vocab_size = 1000
+        d_model = 128
+        nhead = 8
+        batch_size = 1
+        src_seq_len = 20
+        tgt_seq_len = 15
+        
+        # 创建模型
+        model = TransformerModel(
+            vocab_size=vocab_size,
+            d_model=d_model,
+            nhead=nhead,
+            num_encoder_layers=2,
+            num_decoder_layers=2
+        )
+        
+        # 创建模拟输入
+        src = torch.randint(0, vocab_size, (batch_size, src_seq_len))
+        tgt = torch.randint(0, vocab_size, (batch_size, tgt_seq_len))
+        
+        print(f"\n输入:")
+        print(f"  Source shape: {src.shape}")
+        print(f"  Target shape: {tgt.shape}")
+        
+        # 创建掩码
+        src_mask = torch.ones(batch_size, 1, 1, src_seq_len)
+        tgt_mask = model.generate_square_subsequent_mask(tgt_seq_len)
+        
+        print(f"\nMasks:")
+        print(f"  Source mask shape: {src_mask.shape}")
+        print(f"  Target mask shape: {tgt_mask.shape}")
+        
+        # 前向传播
+        logits, enc_weights, dec_weights = model(src, tgt, src_mask, tgt_mask)
+        
+        print(f"\n输出:")
+        print(f"  Logits shape: {logits.shape}")
+        print(f"  Vocabulary size: {vocab_size}")
+        
+        # 转换为概率
+        probs = torch.softmax(logits, dim=-1)
+        print(f"  Probabilities sum (should be 1.0): {probs.sum(dim=-1).mean().item():.4f}")
+        
+        # 获取最可能的token
+        predicted_tokens = torch.argmax(logits, dim=-1)
+        print(f"  Predicted tokens shape: {predicted_tokens.shape}")
+        print(f"  Sample predicted token IDs: {predicted_tokens[0, :5].tolist()}")
+        
+        print(f"\n{'='*60}")
+        print(f"[OK] Transformer测试完成！")
+        print(f"{'='*60}")
+        print(f"\n提示: 完整日志已自动保存到 logs/ 目录")

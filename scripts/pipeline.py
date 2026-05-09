@@ -2,6 +2,7 @@
 完整流程管道 - 整合所有组件实现端到端的代码生成
 """
 
+import sys
 import time
 from typing import Dict, Optional
 from tokenizer import SimpleTokenizer
@@ -9,6 +10,7 @@ from transformer import TransformerModel
 from generator import CodeGenerator, SamplingStrategy, TemperatureSampling
 from postprocessor import CodePostProcessor
 from cache import GenerationCache
+from logger import logging_context
 
 
 class CodeGenerationPipeline:
@@ -358,74 +360,82 @@ class CodeGenerationPipeline:
 
 # 测试代码
 if __name__ == '__main__':
-    print("="*60)
-    print("测试完整管道")
-    print("="*60)
-    
-    # 创建管道
-    pipeline = CodeGenerationPipeline(
-        vocab_size=1000,
-        d_model=128,
-        nhead=8,
-        num_encoder_layers=2,
-        num_decoder_layers=2,
-        cache_size=10,
-        device='cpu'
-    )
-    
-    # 测试1: 基本生成
-    print("\n" + "="*60)
-    print("测试1: 基本代码生成")
-    print("="*60)
-    
-    result = pipeline.generate(
-        prompt="public class UserService",
-        max_length=50,
-        temperature=0.7,
-        verbose=True
-    )
-    
-    if result['success']:
-        print(f"\n[OK] 生成成功")
-        print(f"  来源: {result['source']}")
-        print(f"  耗时: {result['processing_time']:.4f}s")
-        print(f"  Token数: {result['token_count']}")
-    else:
-        print(f"\n[ERROR] 生成失败: {result['error']}")
-    
-    # 测试2: 缓存测试
-    print("\n" + "="*60)
-    print("测试2: 缓存功能")
-    print("="*60)
-    
-    print("\n第二次相同请求（应该命中缓存）:")
-    result2 = pipeline.generate(
-        prompt="public class UserService",
-        max_length=50,
-        verbose=True
-    )
-    
-    if result2['success']:
-        print(f"\n[OK] 缓存命中")
-        print(f"  来源: {result2['source']}")
-        print(f"  耗时: {result2['processing_time']:.4f}s")
-    
-    # 测试3: 多样本生成
-    print("\n" + "="*60)
-    print("测试3: 多样本生成")
-    print("="*60)
-    
-    samples = pipeline.generate_multiple_samples(
-        prompt="public class UserController",
-        num_samples=3,
-        max_length=40
-    )
-    
-    print(f"\n生成了 {len(samples)} 个样本:")
-    for sample in samples:
-        print(f"\n--- Sample {sample['sample_id']} (temp={sample['temperature']}) ---")
-        print(f"Tokens: {sample['token_count']}, Time: {sample['processing_time']:.4f}s")
-        print(f"Code preview: {sample['code'][:100]}...")
-    
-    # 显示统计
-    pipeline.display_full_stats()
+    # 使用日志上下文管理器，自动管理日志文件
+    with logging_context(__file__):
+        print("="*60)
+        print("测试完整管道")
+        print("="*60)
+        
+        # 创建管道
+        pipeline = CodeGenerationPipeline(
+            vocab_size=1000,
+            d_model=128,
+            nhead=8,
+            num_encoder_layers=2,
+            num_decoder_layers=2,
+            cache_size=10,
+            device='cpu'
+        )
+        
+        # 测试1: 基本生成
+        print("\n" + "="*60)
+        print("测试1: 基本代码生成")
+        print("="*60)
+        
+        result = pipeline.generate(
+            prompt="public class UserService",
+            max_length=50,
+            temperature=0.7,
+            verbose=True
+        )
+        
+        if result['success']:
+            print(f"\n[OK] 生成成功")
+            print(f"  来源: {result['source']}")
+            print(f"  耗时: {result['processing_time']:.4f}s")
+            print(f"  Token数: {result['token_count']}")
+        else:
+            print(f"\n[ERROR] 生成失败: {result['error']}")
+        
+        # 测试2: 缓存测试
+        print("\n" + "="*60)
+        print("测试2: 缓存功能")
+        print("="*60)
+        
+        print("\n第二次相同请求（应该命中缓存）:")
+        result2 = pipeline.generate(
+            prompt="public class UserService",
+            max_length=50,
+            verbose=True
+        )
+        
+        if result2['success']:
+            print(f"\n[OK] 缓存命中")
+            print(f"  来源: {result2['source']}")
+            print(f"  耗时: {result2['processing_time']:.4f}s")
+        
+        # 测试3: 多样本生成
+        print("\n" + "="*60)
+        print("测试3: 多样本生成")
+        print("="*60)
+        
+        samples = pipeline.generate_multiple_samples(
+            prompt="public class UserController",
+            num_samples=3,
+            max_length=40
+        )
+        
+        print(f"\n生成了 {len(samples)} 个样本:")
+        for sample in samples:
+            print(f"\n--- Sample {sample['sample_id']} (temp={sample['temperature']}) ---")
+            print(f"Tokens: {sample['token_count']}, Time: {sample['processing_time']:.4f}s")
+            print(f"Code preview: {sample['code'][:100]}...")
+        
+        # 显示统计
+        pipeline.display_full_stats()
+        
+        print(f"\n{'='*60}")
+        print(f"[OK] 所有测试完成！")
+        print(f"{'='*60}")
+        print(f"\n提示: 完整日志已自动保存到 logs/ 目录")
+        print(f"      查看日志文件以获取完整输出")

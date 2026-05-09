@@ -10,6 +10,7 @@ import os
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tokenizer import SimpleTokenizer
+from logger import logging_context
 
 
 def test_tokenizer_performance():
@@ -115,25 +116,27 @@ def test_different_vocab_sizes():
 
 
 if __name__ == '__main__':
-    print("\n" + "#"*60)
-    print("# LLM代码生成演示 - 性能测试")
-    print("#"*60 + "\n")
-    
-    try:
-        test_tokenizer_performance()
-        test_memory_usage()
-        test_different_vocab_sizes()
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        print("\n" + "#"*60)
+        print("# LLM代码生成演示 - 性能测试")
+        print("#"*60 + "\n")
         
-        print("\n" + "="*60)
-        print("所有测试完成！")
-        print("="*60)
-        print("\n优化效果:")
-        print("  [OK] 词汇表缓存 - 避免重复构建")
-        print("  [OK] 日志控制 - 生产环境可关闭调试输出")
-        print("  [OK] 性能提升 - 预计30-50%的速度提升")
-        
-    except Exception as e:
-        print(f"\n[ERROR] 测试失败: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
+        try:
+            test_tokenizer_performance()
+            test_memory_usage()
+            test_different_vocab_sizes()
+            
+            print("\n" + "="*60)
+            print("所有测试完成！")
+            print("="*60)
+            print("\n优化效果:")
+            print("  [OK] 词汇表缓存 - 避免重复构建")
+            print("  [OK] 日志控制 - 生产环境可关闭调试输出")
+            print("  [OK] 性能提升 - 预计30-50%的速度提升")
+            
+        except Exception as e:
+            print(f"\n[ERROR] 测试失败: {e}")
+            import traceback
+            traceback.print_exc()
+            sys.exit(1)

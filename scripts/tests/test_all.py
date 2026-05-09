@@ -9,6 +9,9 @@ import traceback
 # 添加父目录（scripts）到Python路径
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
+# 导入日志系统
+from logger import logging_context
+
 
 def test_tokenizer():
     """测试Token化模块"""
@@ -282,55 +285,57 @@ def test_pipeline():
 
 def main():
     """运行所有测试"""
-    print("=" * 60)
-    print("LLM代码生成演示 - 完整测试")
-    print("=" * 60)
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        print("=" * 60)
+        print("LLM代码生成演示 - 完整测试")
+        print("=" * 60)
 
-    tests = [
-        ("Tokenizer", test_tokenizer),
-        ("Attention", test_attention),
-        ("Transformer", test_transformer),
-        ("Generator", test_generator),
-        ("PostProcessor", test_postprocessor),
-        ("Cache", test_cache),
-        ("Pipeline", test_pipeline),
-    ]
+        tests = [
+            ("Tokenizer", test_tokenizer),
+            ("Attention", test_attention),
+            ("Transformer", test_transformer),
+            ("Generator", test_generator),
+            ("PostProcessor", test_postprocessor),
+            ("Cache", test_cache),
+            ("Pipeline", test_pipeline),
+        ]
 
-    results = []
+        results = []
 
-    for name, test_func in tests:
-        try:
-            success = test_func()
-            results.append((name, success))
-        except Exception as e:
-            print(f"\n[ERROR] {name}测试异常: {e}")
-            traceback.print_exc()
-            results.append((name, False))
+        for name, test_func in tests:
+            try:
+                success = test_func()
+                results.append((name, success))
+            except Exception as e:
+                print(f"\n[ERROR] {name}测试异常: {e}")
+                traceback.print_exc()
+                results.append((name, False))
 
-    # 汇总结果
-    print("\n" + "=" * 60)
-    print("测试结果汇总")
-    print("=" * 60)
+        # 汇总结果
+        print("\n" + "=" * 60)
+        print("测试结果汇总")
+        print("=" * 60)
 
-    passed = sum(1 for _, success in results if success)
-    total = len(results)
+        passed = sum(1 for _, success in results if success)
+        total = len(results)
 
-    for name, success in results:
-        status = "[OK] 通过" if success else "[ERROR] 失败"
-        print(f"  {status} - {name}")
+        for name, success in results:
+            status = "[OK] 通过" if success else "[ERROR] 失败"
+            print(f"  {status} - {name}")
 
-    print(f"\n总计: {passed}/{total} 测试通过")
+        print(f"\n总计: {passed}/{total} 测试通过")
 
-    if passed == total:
-        print("\n[SUCCESS] 所有测试通过！系统工作正常。")
-        print("\n下一步:")
-        print("  1. 运行 python main.py 查看完整演示")
-        print("  2. 阅读 README.md 了解详细用法")
-        print("  3. 修改参数进行实验")
-        return 0
-    else:
-        print(f"\n[WARNING] {total - passed} 个测试失败，请检查错误信息")
-        return 1
+        if passed == total:
+            print("\n[SUCCESS] 所有测试通过！系统工作正常。")
+            print("\n下一步:")
+            print("  1. 运行 python main.py 查看完整演示")
+            print("  2. 阅读 README.md 了解详细用法")
+            print("  3. 修改参数进行实验")
+            return 0
+        else:
+            print(f"\n[WARNING] {total - passed} 个测试失败，请检查错误信息")
+            return 1
 
 
 if __name__ == '__main__':

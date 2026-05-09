@@ -17,10 +17,12 @@ KV Cache（Key-Value缓存）是LLM推理加速的核心技术。
 - 学会分析性能提升
 """
 
+import sys
 import torch
 import torch.nn as nn
 from typing import Optional, Tuple, Dict, List
 import logging
+from logger import logging_context
 
 logger = logging.getLogger(__name__)
 
@@ -365,21 +367,23 @@ def demonstrate_kv_cache_benefit():
 
 
 if __name__ == "__main__":
-    # 运行演示
-    demonstrate_kv_cache_benefit()
-    
-    # 测试KV Cache基本功能
-    print("\n\n测试KV Cache功能...")
-    
-    device = torch.device('cpu')
-    cache = KVCache(
-        num_layers=2,
-        batch_size=1,
-        num_heads=4,
-        max_seq_len=10,
-        head_dim=16,
-        device=device
-    )
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        # 运行演示
+        demonstrate_kv_cache_benefit()
+        
+        # 测试KV Cache基本功能
+        print("\n\n测试KV Cache功能...")
+        
+        device = torch.device('cpu')
+        cache = KVCache(
+            num_layers=2,
+            batch_size=1,
+            num_heads=4,
+            max_seq_len=10,
+            head_dim=16,
+            device=device
+        )
     
     # 模拟生成过程
     print("\n模拟生成长度为5的序列:")

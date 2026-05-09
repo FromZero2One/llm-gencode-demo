@@ -2,9 +2,11 @@
 可视化工具 - 用于可视化注意力权重和生成过程
 """
 
+import sys
 import torch
 from typing import List, Optional
 import numpy as np
+from logger import logging_context
 
 
 class AttentionVisualizer:
@@ -315,19 +317,21 @@ class AttentionVisualizer:
 
 # 测试代码
 if __name__ == '__main__':
-    print("="*60)
-    print("测试可视化工具")
-    print("="*60)
-    
-    visualizer = AttentionVisualizer()
-    
-    if not visualizer.available:
-        print("\n跳过可视化测试（缺少依赖库）")
-    else:
-        # 测试1: 模型架构可视化
-        print("\n--- 测试1: 模型架构 ---")
-        visualizer.visualize_model_architecture(
-            num_encoder_layers=2,
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        print("="*60)
+        print("测试可视化工具")
+        print("="*60)
+        
+        visualizer = AttentionVisualizer()
+        
+        if not visualizer.available:
+            print("\n跳过可视化测试（缺少依赖库）")
+        else:
+            # 测试1: 模型架构可视化
+            print("\n--- 测试1: 模型架构 ---")
+            visualizer.visualize_model_architecture(
+                num_encoder_layers=2,
             num_decoder_layers=2,
             save_path='model_architecture.png'
         )

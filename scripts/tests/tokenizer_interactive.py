@@ -11,6 +11,7 @@ import logging
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
 from tokenizer import SimpleTokenizer
+from logger import logging_context
 
 # 配置日志
 logging.basicConfig(
@@ -255,4 +256,6 @@ def main():
 
 
 if __name__ == '__main__':
-    main()
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        main()

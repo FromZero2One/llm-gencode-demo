@@ -11,6 +11,9 @@ project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(_
 scripts_dir = os.path.join(project_root, 'scripts')
 sys.path.insert(0, scripts_dir)
 
+# Import logger
+from logger import logging_context
+
 from trainer import CrossEntropyLoss, AdamW, WarmupLinearScheduler, TextDataset, Trainer
 from kv_cache import KVCache, KVCacheManager
 from transformer import TransformerModel
@@ -238,50 +241,52 @@ def test_documentation_files():
 
 def main():
     """Run all tests"""
-    print("\n" + "="*70)
-    print("Training System and KV Cache Feature Tests")
-    print("="*70)
-    
-    tests = [
-        ("CrossEntropyLoss", test_cross_entropy_loss),
-        ("AdamW Optimizer", test_adamw_optimizer),
-        ("WarmupScheduler", test_warmup_scheduler),
-        ("KV Cache", test_kv_cache),
-        ("Documentation", test_documentation_files),
-    ]
-    
-    results = []
-    for name, test_func in tests:
-        try:
-            result = test_func()
-            results.append((name, result))
-        except Exception as e:
-            print(f"\n  [FAIL] {name} test exception: {e}")
-            results.append((name, False))
-    
-    print("\n\n" + "="*70)
-    print("Test Results Summary")
-    print("="*70)
-    
-    passed = sum(1 for _, r in results if r)
-    total = len(results)
-    
-    for name, result in results:
-        status = "[PASS]" if result else "[FAIL]"
-        print(f"  {status:8} - {name}")
-    
-    print("\n" + "-"*70)
-    print(f"Total: {passed}/{total} tests passed")
-    
-    if passed == total:
+    # Use logging context manager
+    with logging_context(__file__):
         print("\n" + "="*70)
-        print("ALL TESTS PASSED! Code is complete and functional!")
+        print("Training System and KV Cache Feature Tests")
         print("="*70)
-        return 0
-    else:
-        print(f"\n{total - passed} tests failed. Please check error messages above.")
+        
+        tests = [
+            ("CrossEntropyLoss", test_cross_entropy_loss),
+            ("AdamW Optimizer", test_adamw_optimizer),
+            ("WarmupScheduler", test_warmup_scheduler),
+            ("KV Cache", test_kv_cache),
+            ("Documentation", test_documentation_files),
+        ]
+        
+        results = []
+        for name, test_func in tests:
+            try:
+                result = test_func()
+                results.append((name, result))
+            except Exception as e:
+                print(f"\n  [FAIL] {name} test exception: {e}")
+                results.append((name, False))
+        
+        print("\n\n" + "="*70)
+        print("Test Results Summary")
         print("="*70)
-        return 1
+        
+        passed = sum(1 for _, r in results if r)
+        total = len(results)
+        
+        for name, result in results:
+            status = "[PASS]" if result else "[FAIL]"
+            print(f"  {status:8} - {name}")
+        
+        print("\n" + "-"*70)
+        print(f"Total: {passed}/{total} tests passed")
+        
+        if passed == total:
+            print("\n" + "="*70)
+            print("ALL TESTS PASSED! Code is complete and functional!")
+            print("="*70)
+            return 0
+        else:
+            print(f"\n{total - passed} tests failed. Please check error messages above.")
+            print("="*70)
+            return 1
 
 
 if __name__ == "__main__":

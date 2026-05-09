@@ -4,15 +4,16 @@
 本脚本演示如何使用新增的训练功能和KV Cache优化。
 """
 
-import torch
 import sys
 import os
+import torch
 
 # 添加scripts目录到路径
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), 'scripts'))
 
 from transformer import Transformer
 from trainer import Trainer, TextDataset
+from logger import logging_context
 from kv_cache import KVCacheManager, demonstrate_kv_cache_benefit
 
 
@@ -269,24 +270,26 @@ def demo_integration():
 
 
 if __name__ == "__main__":
-    print("\n" + "🚀" * 35)
-    print("LLM CodeGen Demo - 训练系统和KV Cache演示")
-    print("🚀" * 35 + "\n")
-    
-    # 运行演示
-    try:
-        demo_training()
-    except Exception as e:
-        print(f"\n⚠️  训练演示遇到问题: {e}")
-        print("这可能是由于缺少完整的tokenizer或其他依赖")
-    
-    demo_kv_cache()
-    demo_integration()
-    
-    print("\n\n" + "✨" * 35)
-    print("所有演示完成！")
-    print("✨" * 35)
-    print("\n下一步：")
-    print("  1. 阅读 docs/TRAINING_AND_KV_CACHE_GUIDE.md 了解详细文档")
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        print("\n" + "🚀" * 35)
+        print("LLM CodeGen Demo - 训练系统和KV Cache演示")
+        print("🚀" * 35 + "\n")
+        
+        # 运行演示
+        try:
+            demo_training()
+        except Exception as e:
+            print(f"\n⚠️  训练演示遇到问题: {e}")
+            print("这可能是由于缺少完整的tokenizer或其他依赖")
+        
+        demo_kv_cache()
+        demo_integration()
+        
+        print("\n\n" + "✨" * 35)
+        print("所有演示完成！")
+        print("✨" * 35)
+        print("\n下一步：")
+        print("  1. 阅读 docs/TRAINING_AND_KV_CACHE_GUIDE.md 了解详细文档")
     print("  2. 尝试在自己的数据上训练模型")
     print("  3. 将KV Cache集成到现有的generator.py中")

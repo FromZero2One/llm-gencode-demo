@@ -2,8 +2,10 @@
 后处理模块 - 对生成的代码进行格式化、验证和优化
 """
 
+import sys
 import re
 from typing import List, Dict
+from logger import logging_context
 
 
 class SyntaxValidator:
@@ -388,12 +390,14 @@ class CodePostProcessor:
 
 # 测试代码
 if __name__ == '__main__':
-    print("="*60)
-    print("测试后处理模块")
-    print("="*60)
-    
-    # 创建后处理器
-    post_processor = CodePostProcessor()
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        print("="*60)
+        print("测试后处理模块")
+        print("="*60)
+        
+        # 创建后处理器
+        post_processor = CodePostProcessor()
     
     # 测试代码
     test_code = """

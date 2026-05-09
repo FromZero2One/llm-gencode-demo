@@ -2,11 +2,13 @@
 代码生成器模块 - 实现各种采样策略和代码生成逻辑
 """
 
+import sys
 import torch
 import torch.nn.functional as F
 from typing import List, Optional, Dict
 from transformer import TransformerModel
 from tokenizer import SimpleTokenizer
+from logger import logging_context
 
 
 class SamplingStrategy:
@@ -329,25 +331,27 @@ class CodeGenerator:
 
 # 测试代码
 if __name__ == '__main__':
-    print("="*60)
-    print("测试代码生成器")
-    print("="*60)
-    
-    # 创建模型和tokenizer
-    vocab_size = 1000
-    d_model = 128
-    
-    tokenizer = SimpleTokenizer(vocab_size=vocab_size)
-    model = TransformerModel(
-        vocab_size=vocab_size,
-        d_model=d_model,
-        nhead=8,
-        num_encoder_layers=2,
-        num_decoder_layers=2
-    )
-    
-    # 创建生成器
-    generator = CodeGenerator(model, tokenizer, device='cpu')
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        print("="*60)
+        print("测试代码生成器")
+        print("="*60)
+        
+        # 创建模型和tokenizer
+        vocab_size = 1000
+        d_model = 128
+        
+        tokenizer = SimpleTokenizer(vocab_size=vocab_size)
+        model = TransformerModel(
+            vocab_size=vocab_size,
+            d_model=d_model,
+            nhead=8,
+            num_encoder_layers=2,
+            num_decoder_layers=2
+        )
+        
+        # 创建生成器
+        generator = CodeGenerator(model, tokenizer, device='cpu')
     
     # 测试不同的采样策略
     strategies = [

@@ -3,11 +3,13 @@
 这是Transformer的核心组件，用于理解token之间的关系
 """
 
+import sys
 import torch
 import torch.nn as nn
 import math
 import logging
 from typing import Tuple, Optional
+from logger import logging_context
 
 # 配置日志
 logger = logging.getLogger(__name__)
@@ -250,20 +252,22 @@ class PositionalEncoding(nn.Module):
 
 # 测试代码
 if __name__ == '__main__':
-    print("="*60)
-    print("测试注意力机制")
-    print("="*60)
-    
-    # 参数设置
-    batch_size = 1
-    seq_len = 10
-    d_model = 128
-    nhead = 8
-    
-    # 创建模拟输入
-    query = torch.randn(batch_size, seq_len, d_model)
-    key = torch.randn(batch_size, seq_len, d_model)
-    value = torch.randn(batch_size, seq_len, d_model)
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        print("="*60)
+        print("测试注意力机制")
+        print("="*60)
+        
+        # 参数设置
+        batch_size = 1
+        seq_len = 10
+        d_model = 128
+        nhead = 8
+        
+        # 创建模拟输入
+        query = torch.randn(batch_size, seq_len, d_model)
+        key = torch.randn(batch_size, seq_len, d_model)
+        value = torch.randn(batch_size, seq_len, d_model)
     
     print(f"\n输入形状:")
     print(f"  Query: {query.shape}")

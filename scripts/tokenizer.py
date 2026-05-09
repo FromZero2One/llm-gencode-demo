@@ -3,9 +3,11 @@ Token化模块 - 将文本转换为token序列
 用于理解和调试大模型的输入处理过程
 """
 
+import sys
 import re
 import logging
 from typing import List, Dict, Tuple
+from logger import logging_context
 
 # 配置日志 - 如果没有配置过,设置默认级别为 DEBUG
 if not logging.getLogger().handlers:
@@ -438,18 +440,20 @@ class SimpleTokenizer:
 
 # 测试代码
 if __name__ == '__main__':
-    # 创建tokenizer
-    tokenizer = SimpleTokenizer(vocab_size=1000, debug_mode=True)
-    
-    # 测试文本
-    test_text = "public class UserService { public User findById(Long id) { return userRepository.findById(id).orElse(null); } }"
-    
-    print("\n" + "="*60)
-    print("测试Token化过程")
-    print("="*60 + "\n")
-    
-    # 编码
-    token_ids, attention_mask = tokenizer.encode(test_text, max_length=64)
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        # 创建tokenizer
+        tokenizer = SimpleTokenizer(vocab_size=1000, debug_mode=True)
+        
+        # 测试文本
+        test_text = "public class UserService { public User findById(Long id) { return userRepository.findById(id).orElse(null); } }"
+        
+        print("\n" + "="*60)
+        print("测试Token化过程")
+        print("="*60 + "\n")
+        
+        # 编码
+        token_ids, attention_mask = tokenizer.encode(test_text, max_length=64)
     
     print(f"\nToken IDs (前30个): {token_ids[:30]}")
     print(f"Attention Mask (前30个): {attention_mask[:30]}")

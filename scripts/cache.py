@@ -3,10 +3,12 @@
 提高重复或相似请求的响应速度
 """
 
+import sys
 import hashlib
 import time
 from typing import Optional, Dict, List
 from collections import OrderedDict
+from logger import logging_context
 
 
 class GenerationCache:
@@ -238,12 +240,14 @@ class GenerationCache:
 
 # 测试代码
 if __name__ == '__main__':
-    print("="*60)
-    print("测试缓存模块")
-    print("="*60)
-    
-    # 创建缓存
-    cache = GenerationCache(max_size=5)
+    # 使用日志上下文管理器
+    with logging_context(__file__):
+        print("="*60)
+        print("测试缓存模块")
+        print("="*60)
+        
+        # 创建缓存
+        cache = GenerationCache(max_size=5)
     
     # 测试基本操作
     print("\n--- 测试1: 基本缓存操作 ---")
