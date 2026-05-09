@@ -151,3 +151,23 @@ Get-ChildItem logs/*.log | Where-Object { $_.LastWriteTime -lt (Get-Date).AddDay
 - ✅ 分享日志协助调试
 
 **就是这么简单！** 🎉
+
+---
+
+## 📚 下一步
+
+### 想深入了解？
+- 📖 [README.md](./README.md) - 完整使用指南
+- 🔧 [IMPLEMENTATION_SUMMARY.md](./IMPLEMENTATION_SUMMARY.md) - 技术实现细节
+- 📊 [TEST_REPORT.md](./TEST_REPORT.md) - 测试报告
+
+### 想在自己的项目中使用？
+1. 复制 `scripts/logger.py` 到你的项目
+2. 在脚本中导入：`from logger import logging_context`
+3. 使用上下文管理器包裹代码
+4. 完成！
+
+### 遇到问题？
+- 查看 [README.md](./README.md) 的“故障排查”章节
+- 检查日志文件是否正确生成
+- 确认使用的是UTF-8兼容的编辑器

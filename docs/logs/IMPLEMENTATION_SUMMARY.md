@@ -11,6 +11,72 @@
 
 ---
 
+## 📐 架构设计
+
+### 工作流程图
+
+```
+用户脚本 (scripts/xxx.py)
+    ↓
+导入 logger 模块
+    ↓
+使用 logging_context(__file__)
+    ↓
+┌─────────────────────────────────┐
+│   DualOutputLogger 初始化       │
+│  - 创建 logs/ 目录（如果不存在）│
+│  - 生成日志文件名                │
+│  - 打开文件句柄（UTF-8编码）    │
+│  - 写入文件头信息                │
+└─────────────────────────────────┘
+    ↓
+┌─────────────────────────────────┐
+│   执行用户代码                   │
+│  - print() → 控制台 + 文件      │
+│  - logging → 控制台 + 文件      │
+└─────────────────────────────────┘
+    ↓
+┌─────────────────────────────────┐
+│   退出 with 块                  │
+│  - 写入文件尾信息                │
+│  - 关闭文件句柄                  │
+│  - 恢复 sys.stdout               │
+└─────────────────────────────────┘
+    ↓
+日志文件保存完成
+```
+
+### 数据流
+
+```
+print("消息")
+    ↓
+DualOutputLogger.write()
+    ├→ sys.stdout.write()  → 控制台显示
+    └→ file_handle.write() → 文件保存
+```
+
+### 关键设计决策
+
+1. **为什么使用上下文管理器？**
+   - 自动资源管理，避免文件泄漏
+   - 异常安全，确保文件正确关闭
+   - 代码简洁，易于使用
+
+2. **为什么双重输出？**
+   - 控制台：实时反馈，便于调试
+   - 文件：完整记录，便于追溯
+
+3. **为什么用UTF-8编码？**
+   - 支持中文等多语言字符
+   - 跨平台兼容性好
+
+4. **为什么自动命名？**
+   - 避免文件名冲突
+   - 便于按时间排序和查找
+
+---
+
 ## ✅ 完成的工作
 
 ### 1. 核心模块开发
@@ -87,6 +153,72 @@ class DualOutputLogger:
         self.original_stdout.write(text)
         # 输出到文件
         self.file_handle.write(text)
+```
+
+---
+
+## 📚 API参考
+
+### 1. DualOutputLogger 类
+
+**功能**: 双重输出Logger，同时写入控制台和文件
+
+**构造函数**:
+```python
+DualOutputLogger(log_file=None)
+```
+- `log_file`: 日志文件路径（可选）
+
+**主要方法**:
+- `write(text)`: 写入文本到控制台和文件
+- `flush()`: 刷新缓冲区
+- `close()`: 关闭文件句柄
+
+### 2. logging_context 上下文管理器
+
+**功能**: 自动管理日志生命周期
+
+**用法**:
+```python
+with logging_context(__file__, log_dir='logs', enable_logging=True):
+    # 你的代码
+```
+
+**参数**:
+- `script_path`: 脚本路径（用于生成文件名）
+- `log_dir`: 日志目录（默认 'logs'）
+- `enable_logging`: 是否启用日志（默认 True）
+
+### 3. setup_logger() 函数
+
+**功能**: 手动设置日志系统
+
+**用法**:
+```python
+logger = setup_logger(__file__, log_dir='logs', enable_logging=True)
+try:
+    # 你的代码
+finally:
+    cleanup_logger(logger)
+```
+
+### 4. generate_log_filename() 函数
+
+**功能**: 根据脚本路径生成日志文件名
+
+**用法**:
+```python
+log_path = generate_log_filename(__file__, log_dir='logs')
+# 返回: 'logs/transformer_20260509_160258.log'
+```
+
+### 5. cleanup_logger() 函数
+
+**功能**: 清理日志资源，恢复标准输出
+
+**用法**:
+```python
+cleanup_logger(logger)
 ```
 
 ---
