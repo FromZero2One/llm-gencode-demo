@@ -173,7 +173,7 @@ generation_process.png
 
 # Logs
 *.log
-logs/
+/logs/
 
 # Data files (if any)
 *.csv
