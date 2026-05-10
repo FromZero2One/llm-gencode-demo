@@ -23,7 +23,7 @@
 5. [调试工具](#调试工具)
 6. [常见问题](#常见问题)
 7. [学习路径](#学习路径)
-8. [🎓 新手学习指南](#-新手学习指南) ⭐新增
+8. [🎓 学习建议](#-学习建议)
 
 ---
 
@@ -79,11 +79,19 @@ python scripts/tests/test_all.py
 python scripts/main.py
 ```
 
-推荐选项：
-- **选项1**: 基本代码生成流程（观看完整过程）
+**交互式主菜单提供7个演示选项**:
+- **选项1**: 基本代码生成流程（观看完整过程，含debug日志）
 - **选项2**: 不同采样策略对比（理解temperature作用）
 - **选项3**: 缓存机制演示（看性能提升）
+- **选项4**: 多样本生成（同时生成多个版本）
+- **选项5**: 可视化功能（生成注意力热力图）
 - **选项6**: 交互模式（自己输入prompt测试）
+- **选项7**: 运行所有演示
+
+**统一入口脚本**:
+```bash
+python run_demo.py  # 提供简化的菜单界面
+```
 
 ### 4. 第一个实验
 
@@ -109,6 +117,75 @@ result = pipeline.generate(
 
 print(result['processed_code'])
 ```
+
+**多样本生成示例**:
+```python
+# 同时生成多个不同版本
+samples = pipeline.generate_multiple_samples(
+    prompt="public class ProductService",
+    num_samples=3,
+    max_length=35,
+    temperatures=[0.5, 0.7, 1.0]  # 不同的temperature
+)
+
+for sample in samples:
+    print(f"Sample {sample['sample_id']} (temp={sample['temperature']}):")
+    print(sample['code'])
+    print()
+```
+
+### 5. 常用命令速查
+
+#### 测试命令
+```bash
+python scripts/tests/test_all.py              # 运行所有核心测试（7项）
+python scripts/tests/test_performance.py      # 性能基准测试
+python scripts/tests/test_new_features.py     # 新功能测试（训练+KV Cache）
+python scripts/tests/verify_math.py           # 数学公式验证
+python scripts/test_training_and_cache.py     # 训练和KV Cache集成演示
+```
+
+#### 演示命令
+```bash
+python scripts/main.py                        # 交互式主菜单（7个演示）
+python run_demo.py                            # 统一入口脚本（简化菜单）
+```
+
+#### 调试命令
+```bash
+python scripts/tests/debug_tokenizer.py       # Tokenizer完整分析
+python scripts/tests/tokenizer_interactive.py # 交互式Tokenizer调试
+python scripts/tests/tokenizer_pdb_debug.py   # PDB断点调试示例
+python scripts/kv_cache.py                    # KV Cache独立演示
+```
+
+#### 可视化命令
+```python
+# 在Python代码中使用
+from scripts.visualizer import AttentionVisualizer
+
+visualizer = AttentionVisualizer()
+visualizer.visualize_attention(weights, tokens)        # 注意力热力图
+visualizer.visualize_model_architecture()              # 模型架构图
+visualizer.visualize_positional_encoding(pe)           # 位置编码可视化
+```
+
+### 6. 硬件要求
+
+**最低配置**:
+- CPU: 任意现代CPU
+- 内存: 4GB RAM
+- 存储: 100MB可用空间
+
+**推荐配置**:
+- GPU: NVIDIA GPU with CUDA support (可选，加速5-10倍)
+- 内存: 8GB+ RAM
+- Python: 3.8+
+
+**性能参考** (Intel i7, 无GPU):
+- 短序列生成 (<50 tokens): ~1-2秒
+- 中等序列生成 (50-100 tokens): ~3-5秒
+- 启用KV Cache后: 加速10-50倍
 
 ---
 
@@ -243,6 +320,65 @@ Temperature > 1 (如1.5):
   - 更随机，更多样
 ```
 
+#### 多样本生成
+
+可以同时使用不同的temperature生成多个版本，对比效果：
+
+```python
+samples = pipeline.generate_multiple_samples(
+    prompt="public class OrderService",
+    num_samples=3,
+    temperatures=[0.5, 0.7, 1.0]
+)
+```
+
+这有助于理解temperature对生成结果的影响。
+
+---
+
+### 后处理器 ⭐重要
+
+#### 概述
+
+后处理器对生成的代码进行格式化、验证和优化，提高代码质量。
+
+**核心功能**:
+- ✅ **括号匹配检查**: 检测未闭合的括号
+- ✅ **语法验证**: 检查常见语法错误
+- ✅ **代码格式化**: 自动缩进和换行
+- ✅ **警告系统**: 提示潜在问题
+
+#### 使用示例
+
+```python
+from scripts.postprocessor import CodePostProcessor
+
+postprocessor = CodePostProcessor()
+
+# 处理生成的代码
+result = postprocessor.process(generated_code)
+
+print(f"Valid: {result['is_valid']}")
+print(f"Errors: {result['errors']}")
+print(f"Warnings: {result['warnings']}")
+print(f"Formatted code:\n{result['formatted_code']}")
+```
+
+#### 在Pipeline中使用
+
+```python
+# 默认启用了后处理
+result = pipeline.generate(
+    prompt="public class UserService",
+    do_post_process=True  # 启用后处理
+)
+
+# 查看后处理结果
+if result['post_processed']:
+    print("Original:", result['raw_code'])
+    print("Processed:", result['processed_code'])
+```
+
 ---
 
 ### 训练系统 ⭐新增
@@ -252,7 +388,7 @@ Temperature > 1 (如1.5):
 训练系统使模型能够从数据中学习，而不仅仅是随机初始化后的前向传播。
 
 **核心组件**：
-- ✅ CrossEntropyLoss - 交叉熵损失函数
+- ✅ CrossEntropyLoss - 交叉熵损失函数（支持标签平滑）
 - ✅ AdamW - 优化器（解耦权重衰减）
 - ✅ WarmupLinearScheduler - 学习率调度器
 - ✅ TextDataset - 数据集类
@@ -263,25 +399,95 @@ Temperature > 1 (如1.5):
 ```python
 from scripts.trainer import Trainer, TextDataset
 from scripts.transformer import TransformerModel
+from scripts.tokenizer import SimpleTokenizer
 
 # 1. 准备数据
-texts = ["def hello_world():", "    print('Hello, World!')"]
+texts = [
+    "def hello_world():",
+    "    print('Hello, World!')",
+    "class UserService:",
+    "    def __init__(self):"
+]
+tokenizer = SimpleTokenizer(vocab_size=1000)
 dataset = TextDataset(texts, tokenizer, max_len=128)
 
 # 2. 创建模型
-model = TransformerModel(vocab_size=1000, d_model=256, nhead=8)
+model = TransformerModel(
+    vocab_size=1000,
+    d_model=256,
+    nhead=8,
+    num_encoder_layers=2,
+    num_decoder_layers=2
+)
 
 # 3. 训练
-trainer = Trainer(model=model, train_dataset=dataset, batch_size=16, lr=1e-4, epochs=20)
+trainer = Trainer(
+    model=model,
+    train_dataset=dataset,
+    batch_size=16,
+    lr=1e-4,
+    epochs=20,
+    warmup_steps=100,
+    label_smoothing=0.1
+)
+
 history = trainer.train()
 ```
 
 #### 核心特性
 
-1. **标签平滑（Label Smoothing）**: 防止模型过于自信
-2. **Warmup学习率策略**: 初期线性增加，后期线性衰减
-3. **梯度裁剪**: 防止梯度爆炸
-4. **Checkpoint管理**: 自动保存最佳模型
+1. **标签平滑（Label Smoothing）**:
+   ```python
+   # 防止模型过于自信，提高泛化能力
+   loss_fn = CrossEntropyLoss(label_smoothing=0.1)
+   ```
+
+2. **Warmup学习率策略**:
+   ```python
+   # 初期线性增加，后期线性衰减
+   scheduler = WarmupLinearScheduler(
+       optimizer=optimizer,
+       warmup_steps=100,
+       total_steps=1000
+   )
+   ```
+
+3. **梯度裁剪**:
+   ```python
+   # 防止梯度爆炸
+   torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+   ```
+
+4. **Checkpoint管理**:
+   ```python
+   # 自动保存最佳模型
+   trainer.save_checkpoint('best_model.pth')
+   
+   # 加载模型
+   trainer.load_checkpoint('best_model.pth')
+   ```
+
+#### 训练监控
+
+```python
+# 查看训练历史
+print(f"Final Loss: {history['loss'][-1]:.4f}")
+print(f"Best Loss: {min(history['loss']):.4f}")
+
+# 可视化训练曲线（需要matplotlib）
+import matplotlib.pyplot as plt
+plt.plot(history['loss'])
+plt.xlabel('Epoch')
+plt.ylabel('Loss')
+plt.title('Training Loss Curve')
+plt.show()
+```
+
+#### 集成演示
+
+```bash
+python scripts/test_training_and_cache.py  # 完整的训练和KV Cache演示
+```
 
 ---
 
@@ -295,6 +501,8 @@ KV Cache（Key-Value缓存）是LLM推理加速的核心技术，可将生成长
 - ⚡ 推理速度提升10-50倍
 - 💾 避免重复计算历史token的K/V
 - 🎯 对长序列特别有效
+
+**注意**: KV Cache不同于结果缓存（cache.py），它是模型内部的优化机制。
 
 #### 性能对比
 
@@ -317,6 +525,62 @@ manager.initialize()
 for step in range(generation_steps):
     outputs = model(input_token, use_cache=True, cache_manager=manager, cache_position=step)
     next_token = sample(outputs)
+```
+
+#### 独立演示
+
+```bash
+python scripts/kv_cache.py  # 查看详细的性能对比
+```
+
+---
+
+### 结果缓存（Result Cache）
+
+#### 概述
+
+结果缓存（cache.py）用于缓存完整的生成结果，当相同的prompt再次出现时直接返回缓存结果。
+
+**与KV Cache的区别**:
+- **KV Cache**: 模型内部优化，加速单次生成的每一步
+- **结果缓存**: 应用层优化，避免重复生成相同内容
+
+**适用场景**:
+- API服务中重复的请求
+- 测试和调试时的快速响应
+- 减少不必要的计算
+
+#### 使用示例
+
+```python
+from scripts.pipeline import CodeGenerationPipeline
+
+pipeline = CodeGenerationPipeline(
+    vocab_size=1000,
+    d_model=128,
+    cache_size=20  # 缓存大小
+)
+
+# 第一次请求（生成并缓存）
+result1 = pipeline.generate(prompt="public class User", max_length=30)
+print(f"Source: {result1['source']}")  # 'generated'
+
+# 第二次相同请求（从缓存获取）
+result2 = pipeline.generate(prompt="public class User", max_length=30)
+print(f"Source: {result2['source']}")  # 'cache'
+print(f"Speedup: {result1['processing_time']/result2['processing_time']:.1f}x")
+```
+
+#### 缓存统计
+
+```python
+pipeline.cache.display_stats()
+# 输出:
+# Cache Statistics:
+#   Total requests: 10
+#   Cache hits: 3
+#   Cache misses: 7
+#   Hit rate: 30.0%
 ```
 
 ---
@@ -360,16 +624,16 @@ llm-codegen-demo/
 
 | 模块 | 行数 | 功能 |
 |------|------|------|
-| [tokenizer.py](file:///home/wsm/codes/llm-gencode-demo/scripts/tokenizer.py) | 471 | 文本分词器 |
-| [attention.py](file:///home/wsm/codes/llm-gencode-demo/scripts/attention.py) | 283 | 多头注意力机制 |
-| [transformer.py](file:///home/wsm/codes/llm-gencode-demo/scripts/transformer.py) | 970 | Transformer完整架构 |
-| [generator.py](file:///home/wsm/codes/llm-gencode-demo/scripts/generator.py) | 381 | 代码生成器 |
-| [postprocessor.py](file:///home/wsm/codes/llm-gencode-demo/scripts/postprocessor.py) | 416 | 代码后处理 |
-| [cache.py](file:///home/wsm/codes/llm-gencode-demo/scripts/cache.py) | 301 | 缓存机制 |
-| [pipeline.py](file:///home/wsm/codes/llm-gencode-demo/scripts/pipeline.py) | 442 | 完整流程整合 |
-| [visualizer.py](file:///home/wsm/codes/llm-gencode-demo/scripts/visualizer.py) | 376 | 可视化工具 |
-| [trainer.py](file:///home/wsm/codes/llm-gencode-demo/scripts/trainer.py) | ~600 | 训练系统 |
-| [kv_cache.py](file:///home/wsm/codes/llm-gencode-demo/scripts/kv_cache.py) | ~400 | KV Cache优化 |
+| [tokenizer.py](file:///home/wsm/codes/llm-gencode-demo/scripts/tokenizer.py) | 471 | 文本分词器（支持UNK检测、mask生成） |
+| [attention.py](file:///home/wsm/codes/llm-gencode-demo/scripts/attention.py) | 283 | 多头注意力机制（Self/Cross/Multi-Head） |
+| [transformer.py](file:///home/wsm/codes/llm-gencode-demo/scripts/transformer.py) | 970 | Transformer完整架构（Encoder+Decoder） |
+| [generator.py](file:///home/wsm/codes/llm-gencode-demo/scripts/generator.py) | 381 | 代码生成器（4种采样策略） |
+| [postprocessor.py](file:///home/wsm/codes/llm-gencode-demo/scripts/postprocessor.py) | 416 | 代码后处理（格式化、语法验证、优化） |
+| [cache.py](file:///home/wsm/codes/llm-gencode-demo/scripts/cache.py) | 301 | 结果缓存机制（加速重复查询） |
+| [pipeline.py](file:///home/wsm/codes/llm-gencode-demo/scripts/pipeline.py) | 442 | 完整流程整合（端到端管道） |
+| [visualizer.py](file:///home/wsm/codes/llm-gencode-demo/scripts/visualizer.py) | 376 | 可视化工具（注意力热力图、架构图） |
+| [trainer.py](file:///home/wsm/codes/llm-gencode-demo/scripts/trainer.py) | ~600 | 训练系统（Loss/Optimizer/Scheduler） |
+| [kv_cache.py](file:///home/wsm/codes/llm-gencode-demo/scripts/kv_cache.py) | ~400 | KV Cache优化（推理加速10-50倍） |
 
 ### 辅助模块
 
@@ -411,6 +675,9 @@ python scripts/tests/debug_tokenizer.py
 
 # 交互式调试
 python scripts/tests/tokenizer_interactive.py
+
+# PDB断点调试示例
+python scripts/tests/tokenizer_pdb_debug.py
 ```
 
 **功能**:
@@ -419,6 +686,7 @@ python scripts/tests/tokenizer_interactive.py
 - ✅ 词汇表统计
 - ✅ 多文本对比
 - ✅ UNK检测
+- ✅ 交互式测试
 
 ### 3. 观察中间结果
 
@@ -452,6 +720,12 @@ print(f"Generation time: {elapsed:.4f}s")
 print(f"Tokens/sec: {result['token_count']/elapsed:.2f}")
 ```
 
+**性能测试命令**:
+```bash
+python scripts/tests/test_performance.py      # 完整性能基准测试
+python scripts/tests/test_new_features.py     # 新功能性能测试
+```
+
 ### 5. 可视化工具
 
 ```python
@@ -459,24 +733,39 @@ from scripts.visualizer import AttentionVisualizer
 
 visualizer = AttentionVisualizer()
 
-# 注意力权重
-visualizer.visualize_attention(weights, token_names)
+# 注意力权重热力图
+visualizer.visualize_attention(weights, token_names, head_idx=0, layer_idx=0)
 
-# 模型架构
-visualizer.visualize_model_architecture(num_encoder_layers=2, num_decoder_layers=2)
+# 模型架构图
+visualizer.visualize_model_architecture(
+    num_encoder_layers=2,
+    num_decoder_layers=2,
+    save_path='model_architecture.png'
+)
 
-# 位置编码
+# 位置编码可视化
 visualizer.visualize_positional_encoding(pos_encoder.pe)
+```
+
+**依赖安装**:
+```bash
+pip install matplotlib seaborn
 ```
 
 ### 6. 测试套件
 
 ```bash
-python scripts/tests/test_all.py              # 所有测试
+# 核心测试
+python scripts/tests/test_all.py              # 所有核心测试（7项）
+
+# 专项测试
 python scripts/tests/test_performance.py      # 性能测试
-python scripts/tests/test_new_features.py     # 新功能测试
-python scripts/tests/verify_math.py           # 数学验证
-python scripts/kv_cache.py                    # KV Cache演示
+python scripts/tests/test_new_features.py     # 新功能测试（训练+KV Cache）
+python scripts/tests/verify_math.py           # 数学公式验证
+
+# 集成演示
+python scripts/test_training_and_cache.py     # 训练和KV Cache集成演示
+python scripts/kv_cache.py                    # KV Cache独立演示
 ```
 
 ---
@@ -633,38 +922,37 @@ mask = [[1, 0, 0],
 
 ---
 
-## 🎓 新手学习指南
+## 🎓 学习建议
 
-如果你是第一次接触这个项目，我们为你准备了详细的学习计划：
+### 新手入门（推荐顺序）
 
-📖 **[LEARNING_GUIDE.md](LEARNING_GUIDE.md)** - 完整的7-14天学习计划
+1. **第一步**: 阅读下方的"快速开始"章节，运行第一个演示（5分钟）
+2. **第二步**: 阅读"核心概念"章节，理解基本原理（30分钟）
+3. **第三步**: 跟随"学习路径"章节，系统性学习（7天）
+4. **第四步**: 使用"调试工具"章节，深入探索（按需查阅）
 
-该指南包含：
-- ✅ 学习前准备（环境搭建、心理准备）
-- ✅ 第1-2天：建立整体认知
-- ✅ 第3-4天：深入核心模块
-- ✅ 第5-6天：掌握高级功能
-- ✅ 第7-8天：实践与扩展
-- ✅ 学习资源推荐
-- ✅ 常见问题解答
-- ✅ 学习检查清单
+### 快速查阅
 
-**适合人群**:
-- 🎯 对Transformer和大模型感兴趣的开发者
-- 🎯 想要深入理解LLM工作原理的学习者
-- 🎯 希望从零实现一个简化版LLM的实践者
+- **想了解项目结构**: 查看"模块说明"章节
+- **想调试代码**: 查看"调试工具"章节
+- **遇到问题**: 查看"常见问题"章节
+- **想深入学习**: 跟随"学习路径"章节
 
 ---
 
 ## 📂 文档说明
 
-本项目采用极简文档结构，仅保留3个核心文档：
+本项目采用极简文档结构，仅保留1个核心文档：
 
-- **[README.md](README.md)** - 主文档，包含项目介绍、核心概念、模块说明、调试工具等
-- **[QUICK_START.md](QUICK_START.md)** - 快速开始指南，常用命令速查
-- **[LEARNING_GUIDE.md](LEARNING_GUIDE.md)** - 完整学习指南，7-14天学习计划
+- **[README.md](README.md)** - 唯一文档，包含所有必要信息
+  - 项目介绍和快速开始
+  - 核心概念详解
+  - 模块说明和项目结构
+  - 调试工具和测试套件
+  - 常见问题解答
+  - 学习路径和建议
 
-**备份文档**: `docs/backup_old_docs/` 目录中保留了之前版本的完整文档，如需查阅可参考。
+**备份文档**: `docs/backup_old_docs/` 目录中保留了之前版本的完整文档，如需查阅历史资料可参考。
 
 ---
 
@@ -686,12 +974,22 @@ mask = [[1, 0, 0],
 
 ## 项目进度
 
-想了解项目的开发进度和未来计划？请查看：
-
-📋 **[PROJECT_ROADMAP.md](PROJECT_ROADMAP.md)**
-
-**当前版本**: v1.2 (2026-05-07)  
+**当前版本**: v1.2 (2026-05-10)  
 **最新功能**: 训练系统 + KV Cache优化
+
+**已完成**:
+- ✅ 完整的Transformer架构实现
+- ✅ 多种采样策略（Greedy, Temperature, Top-K, Top-P）
+- ✅ 训练系统（CrossEntropyLoss, AdamW, Scheduler）
+- ✅ KV Cache优化（推理加速50倍+）
+- ✅ 丰富的调试和可视化工具
+- ✅ 完整的文档和学习指南
+
+**未来计划**:
+- 🔮 在真实数据集上训练模型
+- 🔮 实现BPE Tokenizer
+- 🔮 添加Beam Search等高级采样策略
+- 🔮 性能优化（FP16、梯度累积）
 
 ---
 
