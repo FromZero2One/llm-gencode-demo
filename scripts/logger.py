@@ -151,16 +151,16 @@ def generate_log_filename(script_path, log_dir='logs'):
     
     Example:
         >>> generate_log_filename('scripts/pipeline.py')
-        'logs/pipeline_20260509_155630.log'
+        'logs/pipeline_20260509.log'  # 每天一个文件，多次执行会覆盖
     """
     # 获取脚本文件名（不含扩展名）
     script_name = os.path.splitext(os.path.basename(script_path))[0]
     
-    # 生成时间戳
-    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+    # 生成日期戳（只包含年月日，不包含时分秒）
+    date_stamp = datetime.now().strftime('%Y%m%d')
     
     # 组合文件名
-    log_filename = f"{script_name}_{timestamp}.log"
+    log_filename = f"{script_name}_{date_stamp}.log"
     
     # 构建完整路径
     if not os.path.isabs(log_dir):
