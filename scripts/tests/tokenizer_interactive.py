@@ -87,39 +87,36 @@ class InteractiveTokenizerDebugger:
         print("\n" + "="*80)
         print(" " * 20 + "交互式 Tokenizer Debug 工具")
         print("="*80)
-        print("\n使用说明:")
-        print("  - 直接输入文本进行 tokenization")
-        print("  - 输入 'vocab' 查看词汇表统计")
-        print("  - 输入 'help' 查看帮助")
-        print("  - 输入 'quit' 或 'exit' 退出")
+        print("\n请选择操作:")
+        print("  1. [文本分析] 输入代码并查看 Tokens/IDs/Mask")
+        print("  2. [词汇表统计] 查看支持的关键词和符号")
+        print("  3. [快速测试] 运行预设的 Java 代码样例")
+        print("  4. [帮助信息] 查看使用说明")
+        print("  0. 退出程序")
         print("="*80 + "\n")
         
         while True:
             try:
-                user_input = input(">>> ").strip()
+                choice = input(">>> ").strip()
                 
-                if not user_input:
+                if not choice:
                     continue
                 
-                if user_input.lower() in ['quit', 'exit', 'q']:
+                if choice == '0':
                     print("\n再见!\n")
                     break
-                
-                if user_input.lower() == 'help':
-                    self.show_help()
-                    continue
-                
-                if user_input.lower() == 'vocab':
+                elif choice == '1':
+                    text = input("请输入要分析的文本: ").strip()
+                    if text:
+                        self.analyze_text(text)
+                elif choice == '2':
                     self.show_vocab_stats()
-                    continue
-                
-                if user_input.lower() == 'test':
+                elif choice == '3':
                     self.run_quick_tests()
-                    continue
-                
-                # 执行 tokenization
-                print(f"\n分析文本: \"{user_input}\"")
-                result = self.analyze_text(user_input)
+                elif choice == '4':
+                    self.show_help()
+                else:
+                    print("无效选项，请重新输入。\n")
                 
             except KeyboardInterrupt:
                 print("\n\n再见!\n")

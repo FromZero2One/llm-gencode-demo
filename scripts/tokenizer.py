@@ -127,7 +127,8 @@ class SimpleTokenizer:
             'do', 'switch', 'case', 'break', 'continue', 'try', 'catch',
             'finally', 'throw', 'throws', 'new', 'this', 'super', 'import',
             'package', 'extends', 'implements', 'abstract', 'synchronized',
-            'volatile', 'transient', 'native', 'strictfp', 'assert', 'instanceof'
+            'volatile', 'transient', 'native', 'strictfp', 'assert', 'instanceof',
+            'main'
         ]
         for kw in java_keywords:
             vocab[kw] = idx; idx += 1
