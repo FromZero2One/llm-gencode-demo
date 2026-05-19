@@ -8,7 +8,7 @@ import hashlib
 import time
 from typing import Optional, Dict, List
 from collections import OrderedDict
-from logger import logging_context
+from scripts.utils.logger import logging_context
 
 
 class GenerationCache:

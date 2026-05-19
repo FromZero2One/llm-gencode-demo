@@ -7,7 +7,7 @@ import os
 import torch
 from typing import List, Optional
 import numpy as np
-from logger import logging_context
+from scripts.utils.logger import logging_context
 
 
 class AttentionVisualizer:

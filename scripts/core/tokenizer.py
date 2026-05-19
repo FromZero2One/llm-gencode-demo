@@ -1,13 +1,30 @@
 """
-Token化模块 - 将文本转换为token序列
-用于理解和调试大模型的输入处理过程
+[Core] Tokenizer Module - 文本分词器
+=====================================
+功能：将源代码文本转换为token序列，模拟LLM的BPE分词过程
+分类：Core Module (核心模型组件)
+依赖：logger
+被依赖：transformer, generator, pipeline
+
+主要功能：
+- 将Java代码文本分割为token序列
+- 将token映射为数值ID（编码）
+- 将数值ID还原为可读文本（解码）
+- 支持固定长度序列的填充和截断
+- 提供注意力掩码 (Attention Mask)
+
+Example:
+    >>> from scripts.tokenizer import SimpleTokenizer
+    >>> tokenizer = SimpleTokenizer(vocab_size=1000)
+    >>> ids, mask = tokenizer.encode("public class User")
+    >>> text = tokenizer.decode(ids)
 """
 
 import sys
 import re
 import logging
 from typing import List, Dict, Tuple
-from logger import logging_context
+from scripts.utils.logger import logging_context
 
 # 配置日志 - 如果没有配置过,设置默认级别为 DEBUG
 if not logging.getLogger().handlers:

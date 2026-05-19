@@ -9,7 +9,7 @@ import torch.nn as nn
 import math
 import logging
 from typing import Tuple, Optional
-from logger import logging_context
+from scripts.utils.logger import logging_context
 
 # 配置日志
 logger = logging.getLogger(__name__)

@@ -5,12 +5,12 @@
 import sys
 import time
 from typing import Dict, Optional
-from tokenizer import SimpleTokenizer
-from transformer import TransformerModel
-from generator import CodeGenerator, SamplingStrategy, TemperatureSampling
-from postprocessor import CodePostProcessor
-from cache import GenerationCache
-from logger import logging_context
+from scripts.core.tokenizer import SimpleTokenizer
+from scripts.core.transformer import TransformerModel
+from scripts.generation.generator import CodeGenerator, SamplingStrategy, TemperatureSampling
+from scripts.generation.postprocessor import CodePostProcessor
+from scripts.optimization.cache import GenerationCache
+from scripts.utils.logger import logging_context
 
 
 class CodeGenerationPipeline:

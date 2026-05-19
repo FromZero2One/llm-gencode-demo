@@ -22,7 +22,7 @@ import torch
 import torch.nn as nn
 from typing import Optional, Tuple, Dict, List
 import logging
-from logger import logging_context
+from scripts.utils.logger import logging_context
 
 logger = logging.getLogger(__name__)
 

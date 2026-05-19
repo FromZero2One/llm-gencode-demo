@@ -7,10 +7,11 @@ import os
 import numpy as np
 import torch
 
-# 添加父目录（scripts）到Python路径
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 添加项目根目录到Python路径
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
 
-from logger import logging_context
+from scripts.utils.logger import logging_context
 
 def verify_matrix_multiplication():
     """验证练习 1.1：矩阵乘法"""

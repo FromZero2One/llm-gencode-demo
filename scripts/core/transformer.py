@@ -7,8 +7,8 @@ import sys
 import torch
 import torch.nn as nn
 import math
-from attention import MultiHeadAttention, PositionalEncoding
-from logger import logging_context
+from scripts.core.attention import MultiHeadAttention, PositionalEncoding
+from scripts.utils.logger import logging_context
 
 
 class TransformerEncoderLayer(nn.Module):

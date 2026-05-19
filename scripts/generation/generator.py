@@ -6,9 +6,9 @@ import sys
 import torch
 import torch.nn.functional as F
 from typing import List, Optional, Dict
-from transformer import TransformerModel
-from tokenizer import SimpleTokenizer
-from logger import logging_context
+from scripts.core.transformer import TransformerModel
+from scripts.core.tokenizer import SimpleTokenizer
+from scripts.utils.logger import logging_context
 
 
 class SamplingStrategy:

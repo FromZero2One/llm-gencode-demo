@@ -16,8 +16,8 @@
 import sys
 import logging
 from pipeline import CodeGenerationPipeline
-from visualizer import AttentionVisualizer
-from logger import logging_context
+from scripts.utils.visualizer import AttentionVisualizer
+from scripts.utils.logger import logging_context
 
 # 配置日志系统
 logging.basicConfig(

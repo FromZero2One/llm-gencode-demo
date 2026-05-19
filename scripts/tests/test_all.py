@@ -6,11 +6,12 @@ import sys
 import os
 import traceback
 
-# 添加父目录（scripts）到Python路径
-sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# 添加项目根目录到Python路径
+project_root = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+sys.path.insert(0, project_root)
 
 # 导入日志系统
-from logger import logging_context
+from scripts.utils.logger import logging_context
 
 
 def test_tokenizer():
@@ -20,7 +21,7 @@ def test_tokenizer():
     print("=" * 60)
 
     try:
-        from tokenizer import SimpleTokenizer
+        from scripts.core.tokenizer import SimpleTokenizer
 
         tokenizer = SimpleTokenizer(vocab_size=1000, debug_mode=True)
 
@@ -49,7 +50,7 @@ def test_attention():
 
     try:
         import torch
-        from attention import MultiHeadAttention, PositionalEncoding
+        from scripts.core.attention import MultiHeadAttention, PositionalEncoding
 
         # 测试多头注意力
         d_model = 128
@@ -94,7 +95,7 @@ def test_transformer():
 
     try:
         import torch
-        from transformer import TransformerModel
+        from scripts.core.transformer import TransformerModel
 
         vocab_size = 1000
         d_model = 128
@@ -137,9 +138,9 @@ def test_generator():
     print("=" * 60)
 
     try:
-        from tokenizer import SimpleTokenizer
-        from transformer import TransformerModel
-        from generator import CodeGenerator, TemperatureSampling
+        from scripts.core.tokenizer import SimpleTokenizer
+        from scripts.core.transformer import TransformerModel
+        from scripts.generation.generator import CodeGenerator, TemperatureSampling
 
         vocab_size = 1000
         d_model = 128
@@ -185,7 +186,7 @@ def test_postprocessor():
     print("=" * 60)
 
     try:
-        from postprocessor import CodePostProcessor
+        from scripts.generation.postprocessor import CodePostProcessor
 
         post_processor = CodePostProcessor()
 
@@ -214,7 +215,7 @@ def test_cache():
     print("=" * 60)
 
     try:
-        from cache import GenerationCache
+        from scripts.optimization.cache import GenerationCache
 
         cache = GenerationCache(max_size=10)
 
@@ -250,7 +251,7 @@ def test_pipeline():
     print("=" * 60)
 
     try:
-        from pipeline import CodeGenerationPipeline
+        from scripts.pipeline import CodeGenerationPipeline
 
         pipeline = CodeGenerationPipeline(
             vocab_size=1000,

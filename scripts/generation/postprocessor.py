@@ -5,7 +5,7 @@
 import sys
 import re
 from typing import List, Dict
-from logger import logging_context
+from scripts.utils.logger import logging_context
 
 
 class SyntaxValidator:
