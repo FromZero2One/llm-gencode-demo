@@ -176,7 +176,7 @@ python scripts/kv_cache.py                    # KV Cache独立演示
 #### 可视化命令
 ```python
 # 在Python代码中使用
-from scripts.visualizer import AttentionVisualizer
+from scripts.utils.visualizer import AttentionVisualizer
 
 visualizer = AttentionVisualizer()
 visualizer.visualize_attention(weights, tokens)        # 注意力热力图
@@ -365,7 +365,7 @@ samples = pipeline.generate_multiple_samples(
 #### 使用示例
 
 ```python
-from scripts.postprocessor import CodePostProcessor
+from scripts.generation.postprocessor import CodePostProcessor
 
 postprocessor = CodePostProcessor()
 
@@ -411,9 +411,9 @@ if result['post_processed']:
 #### 快速开始
 
 ```python
-from scripts.trainer import Trainer, TextDataset
-from scripts.transformer import TransformerModel
-from scripts.tokenizer import SimpleTokenizer
+from scripts.training.trainer import Trainer, TextDataset
+from scripts.core.transformer import TransformerModel
+from scripts.core.tokenizer import SimpleTokenizer
 
 # 1. 准备数据
 texts = [
@@ -500,7 +500,7 @@ plt.show()
 #### 集成演示
 
 ```bash
-python scripts/test_training_and_cache.py  # 完整的训练和KV Cache演示
+python scripts/training/trainer.py  # 完整的训练和KV Cache演示
 ```
 
 ---
@@ -529,7 +529,7 @@ KV Cache（Key-Value缓存）是LLM推理加速的核心技术，可将生成长
 #### 使用示例
 
 ```python
-from scripts.kv_cache import KVCacheManager
+from scripts.optimization.kv_cache import KVCacheManager
 
 # 1. 初始化
 manager = KVCacheManager(num_layers=4, batch_size=1, num_heads=8, max_seq_len=256, head_dim=32)
@@ -544,7 +544,7 @@ for step in range(generation_steps):
 #### 独立演示
 
 ```bash
-python scripts/kv_cache.py  # 查看详细的性能对比
+python scripts/optimization/kv_cache.py  # 查看详细的性能对比
 ```
 
 ---
@@ -601,7 +601,7 @@ pipeline.cache.display_stats()
 
 ## 模块说明
 
-### 项目结构
+### 项目结构 (v1.3 - 分目录架构)
 
 ```
 llm-gencode-demo/
@@ -609,52 +609,64 @@ llm-gencode-demo/
 │   ├── README.md           # 主文档（本文档）
 │   └── backup_old_docs/    # 备份文档
 │       └── TRANSFORMER_MATH_FOUNDATION.md
-├── scripts/                # 核心脚本目录
-│   ├── main.py             # 主程序入口（交互式菜单）
-│   ├── tokenizer.py        # Tokenizer (471行)
-│   ├── attention.py        # 注意力机制 (283行)
-│   ├── transformer.py      # Transformer (970行)
-│   ├── generator.py        # 代码生成器 (381行)
-│   ├── postprocessor.py    # 后处理器 (416行)
-│   ├── cache.py            # 缓存机制 (301行)
-│   ├── pipeline.py         # 完整管道 (442行)
-│   ├── visualizer.py       # 可视化工具 (385行)
-│   ├── trainer.py          # 训练系统 (695行)
-│   ├── kv_cache.py         # KV Cache (409行)
-│   ├── logger.py           # 日志管理
+├── scripts/                # 核心代码目录（分模块组织）⭐
+│   ├── main.py             # [Integration] 主程序入口
+│   ├── pipeline.py         # [Integration] 完整管道
+│   │
+│   ├── core/               # [Core] 核心模型组件 ⭐新增
+│   │   ├── tokenizer.py    # Tokenizer (471行)
+│   │   ├── attention.py    # 注意力机制 (283行)
+│   │   └── transformer.py  # Transformer (970行)
+│   │
+│   ├── generation/         # [Generation] 代码生成 ⭐新增
+│   │   ├── generator.py    # 代码生成器 (381行)
+│   │   └── postprocessor.py# 后处理器 (416行)
+│   │
+│   ├── optimization/       # [Optimization] 性能优化 ⭐新增
+│   │   ├── cache.py        # 结果缓存 (301行)
+│   │   └── kv_cache.py     # KV Cache (409行)
+│   │
+│   ├── training/           # [Training] 训练系统 ⭐新增
+│   │   └── trainer.py      # 训练器 (695行)
+│   │
+│   ├── utils/              # [Utils] 工具模块 ⭐新增
+│   │   ├── logger.py       # 日志管理
+│   │   └── visualizer.py   # 可视化工具 (385行)
+│   │
 │   └── tests/              # 测试目录
-│       ├── test_all.py         # 完整测试（7项）✅
-│       └── verify_math.py      # 数学验证（10项）✅
-├── visualizations/         # 可视化输出目录 ⭐新增
+│       ├── test_all.py     # 完整测试（7项）✅
+│       └── verify_math.py  # 数学验证（10项）✅
+│
+├── visualizations/         # 可视化输出目录
 │   ├── README.md           # 说明文档
-│   ├── model_architecture.png
-│   ├── attention_head_0.png
-│   ├── attention_summary.png
-│   └── probability_distribution.png
+│   └── *.png               # 生成的图片文件
 ├── logs/                   # 日志文件目录（自动创建）
 ├── requirements.txt        # 依赖包列表
-└── .gitignore              # Git忽略文件
+├── .gitignore              # Git忽略文件
+├── ARCHITECTURE_OPTIMIZATION.md  # 架构优化方案
+└── ARCHITECTURE_SUMMARY.md       # 架构总结
 ```
 
 ### 核心模块
 
 | 模块 | 行数 | 功能 |
 |------|------|------|
-| [tokenizer.py](file:///D:/codes/llm-gencode-demo/scripts/tokenizer.py) | 471 | 文本分词器（支持UNK检测、mask生成） |
-| [attention.py](file:///D:/codes/llm-gencode-demo/scripts/attention.py) | 283 | 多头注意力机制（Self/Cross/Multi-Head） |
-| [transformer.py](file:///D:/codes/llm-gencode-demo/scripts/transformer.py) | 970 | Transformer完整架构（Encoder+Decoder） |
-| [generator.py](file:///D:/codes/llm-gencode-demo/scripts/generator.py) | 381 | 代码生成器（4种采样策略） |
-| [postprocessor.py](file:///D:/codes/llm-gencode-demo/scripts/postprocessor.py) | 416 | 代码后处理（格式化、语法验证、优化） |
-| [cache.py](file:///D:/codes/llm-gencode-demo/scripts/cache.py) | 301 | 结果缓存机制（加速重复查询） |
-| [pipeline.py](file:///D:/codes/llm-gencode-demo/scripts/pipeline.py) | 442 | 完整流程整合（端到端管道） |
-| [visualizer.py](file:///D:/codes/llm-gencode-demo/scripts/visualizer.py) | 385 | 可视化工具（注意力热力图、架构图） |
-| [trainer.py](file:///D:/codes/llm-gencode-demo/scripts/trainer.py) | 695 | 训练系统（Loss/Optimizer/Scheduler） |
-| [kv_cache.py](file:///D:/codes/llm-gencode-demo/scripts/kv_cache.py) | 409 | KV Cache优化（推理加速10-50倍） |
+| [tokenizer.py](file:///D:/codes/llm-gencode-demo/scripts/core/tokenizer.py) | 471 | Tokenizer (支持UNK检测、mask生成) |
+| [attention.py](file:///D:/codes/llm-gencode-demo/scripts/core/attention.py) | 283 | 多头注意力机制 (Self/Cross/Multi-Head) |
+| [transformer.py](file:///D:/codes/llm-gencode-demo/scripts/core/transformer.py) | 970 | Transformer完整架构 (Encoder+Decoder) |
+| [generator.py](file:///D:/codes/llm-gencode-demo/scripts/generation/generator.py) | 381 | 代码生成器 (4种采样策略) |
+| [postprocessor.py](file:///D:/codes/llm-gencode-demo/scripts/generation/postprocessor.py) | 416 | 代码后处理 (格式化、语法验证、优化) |
+| [cache.py](file:///D:/codes/llm-gencode-demo/scripts/optimization/cache.py) | 301 | 结果缓存机制 (加速重复查询) |
+| [kv_cache.py](file:///D:/codes/llm-gencode-demo/scripts/optimization/kv_cache.py) | 409 | KV Cache优化 (推理加速10-50倍) |
+| [pipeline.py](file:///D:/codes/llm-gencode-demo/scripts/pipeline.py) | 442 | 完整流程整合 (端到端管道) |
+| [visualizer.py](file:///D:/codes/llm-gencode-demo/scripts/utils/visualizer.py) | 385 | 可视化工具 (注意力热力图、架构图) |
+| [trainer.py](file:///D:/codes/llm-gencode-demo/scripts/training/trainer.py) | 695 | 训练系统 (Loss/Optimizer/Scheduler) |
+| [logger.py](file:///D:/codes/llm-gencode-demo/scripts/utils/logger.py) | - | 统一日志管理 |
 
 ### 辅助模块
 
-- **[logger.py](file:///D:/codes/llm-gencode-demo/scripts/logger.py)**: 统一日志管理
 - **[main.py](file:///D:/codes/llm-gencode-demo/scripts/main.py)**: 演示入口
+- **[pipeline.py](file:///D:/codes/llm-gencode-demo/scripts/pipeline.py)**: 完整管道集成
 
 ---
 
@@ -664,7 +676,7 @@ llm-gencode-demo/
 
 **启用详细日志**:
 ```python
-from scripts.logger import logging_context
+from scripts.utils.logger import logging_context
 
 with logging_context(__file__):
     print("消息会同时显示在控制台和保存到日志文件")
@@ -672,6 +684,10 @@ with logging_context(__file__):
 
 **Debug模式**:
 ```python
+from scripts.core.tokenizer import SimpleTokenizer
+from scripts.core.attention import MultiHeadAttention
+from scripts.core.transformer import TransformerModel
+
 tokenizer = SimpleTokenizer(vocab_size=1000, debug_mode=True)
 attention = MultiHeadAttention(d_model=128, nhead=8, debug_mode=True)
 model = TransformerModel(vocab_size=1000, d_model=128, debug_mode=True)
@@ -687,13 +703,10 @@ result = pipeline.generate(prompt="public class UserService", max_length=50, ver
 
 ```bash
 # 完整分析
-python scripts/tests/debug_tokenizer.py
+python scripts/core/tokenizer.py
 
-# 交互式调试
-python scripts/tests/tokenizer_interactive.py
-
-# PDB断点调试示例
-python scripts/tests/tokenizer_pdb_debug.py
+# 交互式调试（使用 main.py 的交互模式）
+python scripts/main.py  # 选择选项6: 交互模式
 ```
 
 **功能**:
@@ -738,14 +751,14 @@ print(f"Tokens/sec: {result['token_count']/elapsed:.2f}")
 
 **性能测试命令**:
 ```bash
-python scripts/tests/test_performance.py      # 完整性能基准测试
-python scripts/tests/test_new_features.py     # 新功能性能测试
+# 注意：性能测试已集成到 test_all.py 中
+python scripts/tests/test_all.py      # 包含性能基准测试
 ```
 
 ### 5. 可视化工具
 
 ```python
-from scripts.visualizer import AttentionVisualizer
+from scripts.utils.visualizer import AttentionVisualizer
 
 visualizer = AttentionVisualizer()
 
@@ -780,15 +793,16 @@ python scripts/tests/test_all.py              # 所有核心测试（7项）✅
 python scripts/tests/verify_math.py           # 数学公式验证（10项）✅
 
 # 独立模块测试
-python scripts/tokenizer.py                   # Tokenizer测试
-python scripts/attention.py                   # Attention测试
-python scripts/transformer.py                 # Transformer测试
-python scripts/generator.py                   # Generator测试
-python scripts/postprocessor.py               # PostProcessor测试
-python scripts/cache.py                       # Cache测试
-python scripts/kv_cache.py                    # KV Cache测试
-python scripts/visualizer.py                  # Visualizer测试
-python scripts/pipeline.py                    # Pipeline测试
+python scripts/core/tokenizer.py                # Tokenizer测试
+python scripts/core/attention.py                # Attention测试
+python scripts/core/transformer.py              # Transformer测试
+python scripts/generation/generator.py          # Generator测试
+python scripts/generation/postprocessor.py      # PostProcessor测试
+python scripts/optimization/cache.py            # Cache测试
+python scripts/optimization/kv_cache.py         # KV Cache测试
+python scripts/utils/visualizer.py              # Visualizer测试
+python scripts/training/trainer.py              # Trainer测试
+python scripts/pipeline.py                      # Pipeline测试
 ```
 
 ---
@@ -848,7 +862,7 @@ visualizer.visualize_attention(weights, token_names)
 **原因**: 防止看到未来token
 
 **实现**:
-```python
+```
 # 下三角矩阵
 mask = [[1, 0, 0],
         [1, 1, 0],
@@ -881,9 +895,9 @@ mask = [[1, 0, 0],
 **目标**: 理解输入处理和核心机制
 
 **任务**:
-1. 📖 仔细阅读`tokenizer.py`源码
+1. 📖 仔细阅读`scripts/core/tokenizer.py`源码
 2. 🔬 实验：改变vocab_size，观察UNK比例
-3. 📖 仔细阅读`attention.py`源码
+3. 📖 仔细阅读`scripts/core/attention.py`源码
 4. 🔬 实验：可视化注意力权重
 5. 📝 手写Scaled Dot-Product Attention公式
 
@@ -899,7 +913,7 @@ mask = [[1, 0, 0],
 **目标**: 掌握Encoder-Decoder设计
 
 **任务**:
-1. 📖 仔细阅读`transformer.py`源码
+1. 📖 仔细阅读`scripts/core/transformer.py`源码
 2. 🎨 画出Transformer架构图（包含所有组件）
 3. 🔬 实验：改变层数、维度，观察参数量变化
 4. 📝 解释Residual Connection和LayerNorm的作用
@@ -916,7 +930,7 @@ mask = [[1, 0, 0],
 **目标**: 理解如何从概率中选择token
 
 **任务**:
-1. 📖 仔细阅读`generator.py`源码
+1. 📖 仔细阅读`scripts/generation/generator.py`源码
 2. 🔬 实验：对比4种采样策略的效果
 3. 📝 推导Temperature对概率分布的影响
 4. 🔬 实验：调整temperature和top_k，观察生成多样性
@@ -997,8 +1011,8 @@ mask = [[1, 0, 0],
 
 ## 项目进度
 
-**当前版本**: v1.3 (2026-05-19)  
-**最新功能**: 可视化输出目录 + 文档优化
+**当前版本**: v1.4 (2026-05-19)  
+**最新功能**: 分目录架构重构 + README全面更新
 
 **已完成**:
 - ✅ 完整的Transformer架构实现
@@ -1011,12 +1025,13 @@ mask = [[1, 0, 0],
 - ✅ 文档与实际代码同步更新 ⭐新增
 - ✅ 所有测试通过（7/7 核心测试 + 10/10 数学验证）
 
-**最近改进** (v1.3):
+**最近改进** (v1.4):
+- 🏗️ **分目录架构重构** - scripts目录按职责分组（core/generation/optimization/training/utils）⭐新增
+- 📝 更新所有导入示例和文件链接以反映新结构
+- 🔧 统一使用绝对导入策略，提高代码可维护性
+- ✅ 所有测试通过（7/7 核心测试 + 10/10 数学验证）
 - 🎨 创建 `visualizations/` 目录统一管理可视化输出
-- 📝 修复 README 中不一致的脚本引用
-- 🔧 修复 visualizer.py 中的导入错误
-- ✅ 简化测试套件，移除冗余脚本
-- 📚 更新项目结构和模块说明
+- 📚 简化测试套件，移除冗余脚本
 
 **未来计划**:
 - 🔮 在真实数据集上训练模型
