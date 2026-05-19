@@ -3,6 +3,7 @@
 """
 
 import sys
+import os
 import torch
 from typing import List, Optional
 import numpy as np
@@ -104,7 +105,7 @@ class AttentionVisualizer:
         num_heads_to_show = min(num_heads, nhead)
         
         # 创建子图
-        fig, axes = plt.subplots(2, (num_heads_to_show + 1) // 2, 
+        fig, axes = self.plt.subplots(2, (num_heads_to_show + 1) // 2, 
                                 figsize=(6 * ((num_heads_to_show + 1) // 2), 10))
         
         if num_heads_to_show == 1:
@@ -167,7 +168,7 @@ class AttentionVisualizer:
         tokens = [d['token'] for d in generation_details]
         
         # 为每个步骤提取top-5概率
-        fig, ax = plt.subplots(figsize=(14, 8))
+        fig, ax = self.plt.subplots(figsize=(14, 8))
         
         x = np.arange(len(steps))
         width = 0.15
@@ -229,7 +230,7 @@ class AttentionVisualizer:
         top_tokens = [f"Token {idx}" for idx in top_indices]
         
         # 绘制条形图
-        fig, ax = plt.subplots(figsize=(12, 6))
+        fig, ax = self.plt.subplots(figsize=(12, 6))
         
         x = np.arange(len(top_tokens))
         bars = ax.bar(x, top_probs, color='steelblue', alpha=0.7)
@@ -323,6 +324,11 @@ if __name__ == '__main__':
         print("测试可视化工具")
         print("="*60)
         
+        # 创建可视化输出目录
+        output_dir = 'visualizations'
+        os.makedirs(output_dir, exist_ok=True)
+        print(f"\n可视化文件将保存到: {output_dir}/\n")
+        
         visualizer = AttentionVisualizer()
         
         if not visualizer.available:
@@ -332,9 +338,9 @@ if __name__ == '__main__':
             print("\n--- 测试1: 模型架构 ---")
             visualizer.visualize_model_architecture(
                 num_encoder_layers=2,
-            num_decoder_layers=2,
-            save_path='model_architecture.png'
-        )
+                num_decoder_layers=2,
+                save_path=os.path.join(output_dir, 'model_architecture.png')
+            )
         
         # 测试2: 模拟注意力权重
         print("\n--- 测试2: 注意力权重 ---")
@@ -354,14 +360,14 @@ if __name__ == '__main__':
             attention_weights,
             token_names,
             head_idx=0,
-            save_path='attention_head_0.png'
+            save_path=os.path.join(output_dir, 'attention_head_0.png')
         )
         
         visualizer.visualize_attention_summary(
             attention_weights,
             token_names,
             num_heads=nhead,
-            save_path='attention_summary.png'
+            save_path=os.path.join(output_dir, 'attention_summary.png')
         )
         
         # 测试3: 概率分布
@@ -372,8 +378,12 @@ if __name__ == '__main__':
         visualizer.visualize_probability_distribution(
             logits,
             top_k=15,
-            save_path='probability_distribution.png'
+            save_path=os.path.join(output_dir, 'probability_distribution.png')
         )
         
-        print("\n✓ 所有可视化测试完成")
-        print("  检查生成的PNG文件查看结果")
+        print(f"\n✓ 所有可视化测试完成")
+        print(f"  生成的文件保存在: {output_dir}/ 目录")
+        print(f"  - model_architecture.png")
+        print(f"  - attention_head_0.png")
+        print(f"  - attention_summary.png")
+        print(f"  - probability_distribution.png")

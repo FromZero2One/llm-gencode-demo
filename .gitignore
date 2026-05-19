@@ -193,3 +193,6 @@ generation_process.png
 generated_samples/
 outputs/
 results/
+
+# images
+/visualizations /

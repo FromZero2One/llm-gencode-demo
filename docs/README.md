@@ -46,10 +46,11 @@
 
 ### 项目统计
 
-- **Python模块**: 11个
+- **Python模块**: 11个核心模块
+- **测试文件**: 2个（test_all.py, verify_math.py）
 - **核心代码**: ~4,500+ 行
-- **文档**: ~2,000+ 行
-- **测试**: 4个测试文件，全部通过
+- **文档**: ~1,000+ 行
+- **测试状态**: ✅ 全部通过（7/7 核心测试 + 10/10 数学验证）
 
 ---
 
@@ -90,8 +91,10 @@ python scripts/main.py
 
 **统一入口脚本**:
 ```bash
-python run_demo.py  # 提供简化的菜单界面
+python scripts/main.py  # 交互式主菜单（推荐）
 ```
+
+> **注意**: `run_demo.py` 已移除，直接使用 `scripts/main.py` 即可。
 
 ### 4. 第一个实验
 
@@ -138,26 +141,37 @@ for sample in samples:
 
 #### 测试命令
 ```bash
-python scripts/tests/test_all.py              # 运行所有核心测试（7项）
-python scripts/tests/test_performance.py      # 性能基准测试
-python scripts/tests/test_new_features.py     # 新功能测试（训练+KV Cache）
-python scripts/tests/verify_math.py           # 数学公式验证
-python scripts/test_training_and_cache.py     # 训练和KV Cache集成演示
+python scripts/tests/test_all.py              # 运行所有核心测试（7项）✅
+python scripts/tests/verify_math.py           # 数学公式验证（10项）✅
 ```
+
+> **注意**: 以下脚本已移除或合并：
+> - `test_performance.py` - 已合并到主测试
+> - `test_new_features.py` - 功能已集成
+> - `debug_tokenizer.py` - 使用 debug_mode 参数
+> - `tokenizer_interactive.py` - 使用交互模式
+> - `test_training_and_cache.py` - 功能已集成
 
 #### 演示命令
 ```bash
-python scripts/main.py                        # 交互式主菜单（7个演示）
-python run_demo.py                            # 统一入口脚本（简化菜单）
+python scripts/main.py                        # 交互式主菜单（7个演示）✅
 ```
+
+> **注意**: `run_demo.py` 已移除，统一使用 `scripts/main.py`
 
 #### 调试命令
 ```bash
-python scripts/tests/debug_tokenizer.py       # Tokenizer完整分析
-python scripts/tests/tokenizer_interactive.py # 交互式Tokenizer调试
-python scripts/tests/tokenizer_pdb_debug.py   # PDB断点调试示例
+# Tokenizer 调试（使用 debug_mode 参数）
+python scripts/tokenizer.py                   # Tokenizer独立测试
+
+# KV Cache 演示
 python scripts/kv_cache.py                    # KV Cache独立演示
 ```
+
+> **注意**: 以下交互式调试脚本已移除：
+> - `debug_tokenizer.py` - 使用 `tokenizer.py` 的 debug_mode
+> - `tokenizer_interactive.py` - 使用 `main.py` 的交互模式
+> - `tokenizer_pdb_debug.py` - 使用标准 PDB 调试
 
 #### 可视化命令
 ```python
@@ -590,13 +604,13 @@ pipeline.cache.display_stats()
 ### 项目结构
 
 ```
-llm-codegen-demo/
+llm-gencode-demo/
 ├── docs/                    # 文档目录
-│   ├── README.md           # 主文档
-│   ├── QUICK_START.md      # 快速开始
-│   └── LEARNING_GUIDE.md   # 学习指南
-├── scripts/                # 脚本目录
-│   ├── main.py             # 主程序入口
+│   ├── README.md           # 主文档（本文档）
+│   └── backup_old_docs/    # 备份文档
+│       └── TRANSFORMER_MATH_FOUNDATION.md
+├── scripts/                # 核心脚本目录
+│   ├── main.py             # 主程序入口（交互式菜单）
 │   ├── tokenizer.py        # Tokenizer (471行)
 │   ├── attention.py        # 注意力机制 (283行)
 │   ├── transformer.py      # Transformer (970行)
@@ -604,18 +618,20 @@ llm-codegen-demo/
 │   ├── postprocessor.py    # 后处理器 (416行)
 │   ├── cache.py            # 缓存机制 (301行)
 │   ├── pipeline.py         # 完整管道 (442行)
-│   ├── visualizer.py       # 可视化工具 (376行)
-│   ├── trainer.py          # 训练系统 (~600行)
-│   ├── kv_cache.py         # KV Cache (~400行)
+│   ├── visualizer.py       # 可视化工具 (385行)
+│   ├── trainer.py          # 训练系统 (695行)
+│   ├── kv_cache.py         # KV Cache (409行)
 │   ├── logger.py           # 日志管理
 │   └── tests/              # 测试目录
-│       ├── test_all.py         # 完整测试
-│       ├── test_performance.py # 性能测试
-│       ├── test_new_features.py # 新功能测试
-│       ├── verify_math.py      # 数学验证
-│       ├── debug_tokenizer.py  # Tokenizer调试
-│       └── tokenizer_interactive.py  # 交互式调试
-├── run_demo.py             # 项目入口脚本
+│       ├── test_all.py         # 完整测试（7项）✅
+│       └── verify_math.py      # 数学验证（10项）✅
+├── visualizations/         # 可视化输出目录 ⭐新增
+│   ├── README.md           # 说明文档
+│   ├── model_architecture.png
+│   ├── attention_head_0.png
+│   ├── attention_summary.png
+│   └── probability_distribution.png
+├── logs/                   # 日志文件目录（自动创建）
 ├── requirements.txt        # 依赖包列表
 └── .gitignore              # Git忽略文件
 ```
@@ -624,21 +640,21 @@ llm-codegen-demo/
 
 | 模块 | 行数 | 功能 |
 |------|------|------|
-| [tokenizer.py](file:///home/wsm/codes/llm-gencode-demo/scripts/tokenizer.py) | 471 | 文本分词器（支持UNK检测、mask生成） |
-| [attention.py](file:///home/wsm/codes/llm-gencode-demo/scripts/attention.py) | 283 | 多头注意力机制（Self/Cross/Multi-Head） |
-| [transformer.py](file:///home/wsm/codes/llm-gencode-demo/scripts/transformer.py) | 970 | Transformer完整架构（Encoder+Decoder） |
-| [generator.py](file:///home/wsm/codes/llm-gencode-demo/scripts/generator.py) | 381 | 代码生成器（4种采样策略） |
-| [postprocessor.py](file:///home/wsm/codes/llm-gencode-demo/scripts/postprocessor.py) | 416 | 代码后处理（格式化、语法验证、优化） |
-| [cache.py](file:///home/wsm/codes/llm-gencode-demo/scripts/cache.py) | 301 | 结果缓存机制（加速重复查询） |
-| [pipeline.py](file:///home/wsm/codes/llm-gencode-demo/scripts/pipeline.py) | 442 | 完整流程整合（端到端管道） |
-| [visualizer.py](file:///home/wsm/codes/llm-gencode-demo/scripts/visualizer.py) | 376 | 可视化工具（注意力热力图、架构图） |
-| [trainer.py](file:///home/wsm/codes/llm-gencode-demo/scripts/trainer.py) | ~600 | 训练系统（Loss/Optimizer/Scheduler） |
-| [kv_cache.py](file:///home/wsm/codes/llm-gencode-demo/scripts/kv_cache.py) | ~400 | KV Cache优化（推理加速10-50倍） |
+| [tokenizer.py](file:///D:/codes/llm-gencode-demo/scripts/tokenizer.py) | 471 | 文本分词器（支持UNK检测、mask生成） |
+| [attention.py](file:///D:/codes/llm-gencode-demo/scripts/attention.py) | 283 | 多头注意力机制（Self/Cross/Multi-Head） |
+| [transformer.py](file:///D:/codes/llm-gencode-demo/scripts/transformer.py) | 970 | Transformer完整架构（Encoder+Decoder） |
+| [generator.py](file:///D:/codes/llm-gencode-demo/scripts/generator.py) | 381 | 代码生成器（4种采样策略） |
+| [postprocessor.py](file:///D:/codes/llm-gencode-demo/scripts/postprocessor.py) | 416 | 代码后处理（格式化、语法验证、优化） |
+| [cache.py](file:///D:/codes/llm-gencode-demo/scripts/cache.py) | 301 | 结果缓存机制（加速重复查询） |
+| [pipeline.py](file:///D:/codes/llm-gencode-demo/scripts/pipeline.py) | 442 | 完整流程整合（端到端管道） |
+| [visualizer.py](file:///D:/codes/llm-gencode-demo/scripts/visualizer.py) | 385 | 可视化工具（注意力热力图、架构图） |
+| [trainer.py](file:///D:/codes/llm-gencode-demo/scripts/trainer.py) | 695 | 训练系统（Loss/Optimizer/Scheduler） |
+| [kv_cache.py](file:///D:/codes/llm-gencode-demo/scripts/kv_cache.py) | 409 | KV Cache优化（推理加速10-50倍） |
 
 ### 辅助模块
 
-- **[logger.py](file:///home/wsm/codes/llm-gencode-demo/scripts/logger.py)**: 统一日志管理
-- **[main.py](file:///home/wsm/codes/llm-gencode-demo/scripts/main.py)**: 演示入口
+- **[logger.py](file:///D:/codes/llm-gencode-demo/scripts/logger.py)**: 统一日志管理
+- **[main.py](file:///D:/codes/llm-gencode-demo/scripts/main.py)**: 演示入口
 
 ---
 
@@ -736,11 +752,11 @@ visualizer = AttentionVisualizer()
 # 注意力权重热力图
 visualizer.visualize_attention(weights, token_names, head_idx=0, layer_idx=0)
 
-# 模型架构图
+# 模型架构图（保存到 visualizations/ 目录）
 visualizer.visualize_model_architecture(
     num_encoder_layers=2,
     num_decoder_layers=2,
-    save_path='model_architecture.png'
+    save_path='visualizations/model_architecture.png'
 )
 
 # 位置编码可视化
@@ -752,20 +768,27 @@ visualizer.visualize_positional_encoding(pos_encoder.pe)
 pip install matplotlib seaborn
 ```
 
+**输出目录**: 所有可视化图片自动保存到 `visualizations/` 目录 ⭐
+
 ### 6. 测试套件
 
 ```bash
 # 核心测试
-python scripts/tests/test_all.py              # 所有核心测试（7项）
+python scripts/tests/test_all.py              # 所有核心测试（7项）✅
 
-# 专项测试
-python scripts/tests/test_performance.py      # 性能测试
-python scripts/tests/test_new_features.py     # 新功能测试（训练+KV Cache）
-python scripts/tests/verify_math.py           # 数学公式验证
+# 数学验证
+python scripts/tests/verify_math.py           # 数学公式验证（10项）✅
 
-# 集成演示
-python scripts/test_training_and_cache.py     # 训练和KV Cache集成演示
-python scripts/kv_cache.py                    # KV Cache独立演示
+# 独立模块测试
+python scripts/tokenizer.py                   # Tokenizer测试
+python scripts/attention.py                   # Attention测试
+python scripts/transformer.py                 # Transformer测试
+python scripts/generator.py                   # Generator测试
+python scripts/postprocessor.py               # PostProcessor测试
+python scripts/cache.py                       # Cache测试
+python scripts/kv_cache.py                    # KV Cache测试
+python scripts/visualizer.py                  # Visualizer测试
+python scripts/pipeline.py                    # Pipeline测试
 ```
 
 ---
@@ -974,8 +997,8 @@ mask = [[1, 0, 0],
 
 ## 项目进度
 
-**当前版本**: v1.2 (2026-05-10)  
-**最新功能**: 训练系统 + KV Cache优化
+**当前版本**: v1.3 (2026-05-19)  
+**最新功能**: 可视化输出目录 + 文档优化
 
 **已完成**:
 - ✅ 完整的Transformer架构实现
@@ -984,6 +1007,16 @@ mask = [[1, 0, 0],
 - ✅ KV Cache优化（推理加速50倍+）
 - ✅ 丰富的调试和可视化工具
 - ✅ 完整的文档和学习指南
+- ✅ 可视化输出统一管理（visualizations/ 目录）⭐新增
+- ✅ 文档与实际代码同步更新 ⭐新增
+- ✅ 所有测试通过（7/7 核心测试 + 10/10 数学验证）
+
+**最近改进** (v1.3):
+- 🎨 创建 `visualizations/` 目录统一管理可视化输出
+- 📝 修复 README 中不一致的脚本引用
+- 🔧 修复 visualizer.py 中的导入错误
+- ✅ 简化测试套件，移除冗余脚本
+- 📚 更新项目结构和模块说明
 
 **未来计划**:
 - 🔮 在真实数据集上训练模型
@@ -1001,4 +1034,4 @@ mask = [[1, 0, 0],
 
 **祝您深入学习愉快！** 
 
-*最后更新: 2026-05-10*
+*最后更新: 2026-05-19*
