@@ -14,12 +14,12 @@
 
 | 文档 | 适合人群 | 阅读时间 | 内容 |
 |------|---------|---------|------|
-| [🚀 快速入门](QUICKSTART.md) | 所有人 | 5分钟 | 快速运行第一个示例 |
-| [📖 详细教程](TUTORIAL.md) | 学生/初学者 | 30分钟 | Transformer原理详解 |
-| [🔧 进阶指南](ADVANCED.md) | 开发者/研究者 | 60分钟 | 自定义配置和扩展 |
-| [📘 完整文档](README_FULL.md) | 需要全面了解 | 按需查阅 | 所有技术细节 |
+| [🚀 快速入门](TUTORIAL.md#1-5分钟快速开始) | 所有人 | 5分钟 | 快速运行第一个示例 |
+| [📖 详细教程](TUTORIAL.md) | 学生/初学者 | 20-30分钟 | Transformer原理详解+实战练习 |
+| [📚 参考手册](REFERENCE.md) | 开发者/研究者 | 按需查阅 | 高级配置、API文档、扩展开发 |
+| [📐 数学基础](learning-resources/math/README.md) | 深入学习 | 按需查阅 | 线性代数、微积分、概率论、优化理论 |
 
-> **建议**: 先阅读 [快速入门](QUICKSTART.md)，然后根据需要选择其他文档。
+> **建议**: 先阅读 [快速入门](TUTORIAL.md#1-5分钟快速开始)，然后根据需要选择其他文档。
 
 ---
 
@@ -30,7 +30,7 @@
 ### 核心价值
 
 - **透明化**: 每个步骤都可见，没有黑盒
-- **模块化**: 8个核心模块，可单独学习
+- **模块化**: 10+个核心模块，可单独学习
 - **易用性**: Preset配置系统，1行代码即可开始
 - **可扩展**: 易于添加新功能或修改现有逻辑
 
@@ -40,9 +40,8 @@
 |------|--------|--------|------|
 | 配置参数 | 10+个 | 1个preset | ⬇️ 90% |
 | 入门时间 | 30分钟 | 5分钟 | ⬇️ 83% |
-| 代码行数 | ~4,500 | ~3,300 | ⬇️ 27% |
-| 文件数 | 11个 | 10个 | ⬇️ 9% |
-| README长度 | 1,053行 | ~200行 | ⬇️ 81% |
+| 文档数量 | 6个核心文档 | 3个核心文档 | ⬇️ 50% |
+| 文档总行数 | ~7,000行 | ~1,700行 | ⬇️ 76% |
 
 ---
 
@@ -71,39 +70,44 @@ result = pipeline.generate("public class UserService")
 print(result['processed_code'])
 ```
 
-**详细教程**: 查看 [QUICKSTART.md](QUICKSTART.md)
+**详细教程**: 查看 [TUTORIAL.md](TUTORIAL.md)
 
 ---
 
 ## 📦 项目结构
 
 ```
-llm-codegen-demo/
-├── docs/                    # 文档目录
-│   ├── README.md           # 本文档
-│   ├── QUICKSTART.md       # 快速入门
-│   ├── TUTORIAL.md         # 详细教程
-│   ├── ADVANCED.md         # 进阶指南
-│   └── README_FULL.md      # 完整文档
-├── scripts/                # 核心代码
-│   ├── main.py             # 主程序入口
-│   ├── pipeline.py         # Pipeline整合
-│   ├── core/               # 核心组件
-│   │   ├── tokenizer.py    # Tokenizer
-│   │   ├── attention.py    # Attention机制
-│   │   └── transformer.py  # Transformer
-│   ├── generation/         # 代码生成
-│   │   └── code_generator.py  # 生成器+后处理器
-│   ├── optimization/       # 性能优化
-│   │   ├── cache.py        # 结果缓存
-│   │   └── kv_cache.py     # KV Cache
-│   ├── optional/           # 可选功能
-│   │   └── training/       # 训练系统(可选)
-│   ├── config/             # 配置系统
-│   │   └── presets.py      # Preset定义
-│   ├── utils/              # 工具模块
-│   └── tests/              # 测试套件
-└── logs/                   # 日志文件
+llm-gencode-demo/
+├── docs/                        # 文档目录
+│   ├── README.md                # 本文档（主入口）
+│   ├── TUTORIAL.md              # 详细教程
+│   ├── REFERENCE.md             # 参考手册
+│   ├── learning-resources/      # 学习资源
+│   │   └── math/                # 数学基础（5个专题）
+│   └── TRANSFORMER_MATH_FOUNDATION.md  # 完整数学参考
+│
+├── scripts/                     # 核心代码
+│   ├── main.py                  # 主程序入口
+│   ├── pipeline.py              # Pipeline整合
+│   ├── core/                    # 核心组件
+│   │   ├── tokenizer.py         # Tokenizer
+│   │   ├── attention.py         # Attention机制
+│   │   └── transformer.py       # Transformer模型
+│   ├── generation/              # 代码生成
+│   │   └── code_generator.py    # 生成器+后处理器
+│   ├── optimization/            # 性能优化
+│   │   ├── cache.py             # 结果缓存
+│   │   └── kv_cache.py          # KV Cache
+│   ├── config/                  # 配置系统
+│   │   └── presets.py           # Preset定义
+│   ├── utils/                   # 工具模块
+│   │   ├── logger.py            # 日志管理
+│   │   └── visualizer.py        # 可视化工具
+│   ├── tests/                   # 测试套件
+│   └── optional/                # 可选功能
+│       └── training/            # 训练系统
+│
+└── venv/                        # Python虚拟环境
 ```
 
 ---
@@ -156,21 +160,21 @@ pipeline = CodeGenerationPipeline(preset='small')
 
 ## 📖 学习路径
 
-### 新手入门
+**新手入门**
 
-1. **第一步**: 阅读 [QUICKSTART.md](QUICKSTART.md) (5分钟)
+1. **第一步**: 阅读 [TUTORIAL.md](TUTORIAL.md#1-5分钟快速开始) (5分钟)
 2. **第二步**: 运行 `python scripts/main.py` 体验功能
-3. **第三步**: 阅读 [TUTORIAL.md](TUTORIAL.md) 深入学习
+3. **第三步**: 完成 [TUTORIAL.md](TUTORIAL.md#4-实战练习) 中的练习
 
 ### 进阶学习
 
-1. **第四步**: 阅读 [ADVANCED.md](ADVANCED.md) 掌握高级技巧
+1. **第四步**: 阅读 [REFERENCE.md](REFERENCE.md) 掌握高级技巧
 2. **第五步**: 阅读源码，理解实现细节
 3. **第六步**: 尝试扩展开发，添加新功能
 
 ### 深入研究
 
-- 阅读 [README_FULL.md](README_FULL.md) 了解所有技术细节
+- 学习 [数学基础](learning-resources/math/README.md) 深入理解原理
 - 研究Transformer相关论文
 - 参与开源贡献
 

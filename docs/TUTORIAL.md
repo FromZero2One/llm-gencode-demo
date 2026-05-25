@@ -1,13 +1,13 @@
 # 📖 详细教程 - Transformer代码生成系统
 
-> **阅读时间**: 30分钟  
-> **目标**: 深入理解Transformer架构和代码生成原理
+> **阅读时间**: 20-30分钟  
+> **目标**: 从快速入门到深入理解Transformer架构和代码生成原理
 
 ---
 
 ## 📋 目录
 
-1. [项目概述](#1-项目概述)
+1. [5分钟快速开始](#1-5分钟快速开始)
 2. [核心概念详解](#2-核心概念详解)
 3. [模块学习路径](#3-模块学习路径)
 4. [实战练习](#4-实战练习)
@@ -15,41 +15,80 @@
 
 ---
 
-## 1. 项目概述
+## 1. 5分钟快速开始
 
-### 1.1 这是什么?
+### 1.1 安装依赖
 
-这是一个**从零实现的LLM代码生成演示系统**,完整展示了从输入文本到生成代码的全过程。
+```bash
+pip install torch numpy matplotlib seaborn
+```
 
-**核心价值**:
-- 🔍 **透明化**: 每个步骤都可见,没有黑盒
-- 🧩 **模块化**: 8个核心模块,可单独学习
-- 🎯 **易用性**: Preset配置系统,1行代码即可开始
-- 📚 **教育性**: 详细的注释和文档,适合教学
+### 1.2 运行第一个示例
 
-### 1.2 适用人群
+**最简用法**（只需2行代码）:
 
-- **学生**: 想深入理解Transformer原理
-- **开发者**: 想学习如何实现代码生成系统
-- **研究者**: 想快速原型验证新想法
-- **教师**: 需要教学演示工具
+```python
+from scripts.pipeline import CodeGenerationPipeline
 
-### 1.3 技术栈
+# 创建Pipeline并生成代码
+pipeline = CodeGenerationPipeline(preset='small')
+result = pipeline.generate("public class UserService")
+print(result['processed_code'])
+```
 
-- **Python 3.7+**: 编程语言
-- **PyTorch 2.0+**: 深度学习框架
-- **NumPy**: 数值计算
-- **Matplotlib/Seaborn**: 可视化(可选)
+### 1.3 尝试不同的Preset配置
+
+| Preset | 适用场景 | 参数量 | 速度 |
+|--------|---------|--------|------|
+| **tiny** | 快速测试、教学演示 | ~50K | ⚡⚡⚡ 最快 |
+| **small** | 常规实验、课堂演示 | ~200K | ⚡⚡ 平衡（默认） |
+| **medium** | 深入研究、性能测试 | ~800K | ⚡ 更强 |
+
+```python
+# Tiny preset - 最快，适合快速测试
+pipeline_tiny = CodeGenerationPipeline(preset='tiny')
+
+# Small preset - 平衡性能和速度（默认推荐）
+pipeline_small = CodeGenerationPipeline(preset='small')
+
+# Medium preset - 更强表达能力
+pipeline_medium = CodeGenerationPipeline(preset='medium')
+```
+
+### 1.4 完整示例
+
+```python
+from scripts.pipeline import CodeGenerationPipeline
+
+# 创建Pipeline
+pipeline = CodeGenerationPipeline(preset='small')
+
+# 生成代码
+result = pipeline.generate(
+    prompt="public class UserService",
+    max_length=50,
+    temperature=0.7
+)
+
+# 查看结果
+if result['success']:
+    print("生成的代码:")
+    print(result['processed_code'])
+    print(f"\n耗时: {result['processing_time']:.2f}s")
+    print(f"Token数: {result['token_count']}")
+```
+
+**恭喜！** 你已经成功运行了第一个代码生成示例。接下来让我们深入理解背后的原理。
 
 ---
 
 ## 2. 核心概念详解
 
-### 2.1 Tokenization (文本分词)
+### 2.1 Tokenization（文本分词）
 
-#### 什么是Token?
+#### 什么是Token？
 
-Token是LLM处理的最小单元。例如:
+Token是LLM处理的最小单元。例如：
 
 ```
 原始文本: "public class UserService"
@@ -59,13 +98,13 @@ Tokens: ["public", "class", "User", "Service"]
 IDs:    [15, 23, 156, 289]
 ```
 
-#### 为什么需要Tokenization?
+#### 为什么需要Tokenization？
 
-计算机只能处理数字,不能直接处理文本。Tokenization将文本转换为数字序列。
+计算机只能处理数字，不能直接处理文本。Tokenization将文本转换为数字序列。
 
 #### Attention Mask的作用
 
-当序列长度不一致时,需要padding到相同长度:
+当序列长度不一致时，需要padding到相同长度：
 
 ```
 Token IDs: [15, 23, 156, 0, 0, 0]
@@ -73,7 +112,7 @@ Mask:      [1,  1,  1,   0, 0, 0]
            ↑真实token     ↑padding
 ```
 
-Mask告诉模型哪些位置是真实的token,哪些是填充。
+Mask告诉模型哪些位置是真实的token，哪些是填充。
 
 #### 代码示例
 
@@ -98,19 +137,19 @@ print(f"Decoded: {decoded_text}")
 
 ---
 
-### 2.2 Attention Mechanism (注意力机制)
+### 2.2 Attention Mechanism（注意力机制）
 
 #### 通俗理解
 
-想象你在阅读时,眼睛会**自动关注重要的词**。注意力机制让AI学会这种能力。
+想象你在阅读时，眼睛会**自动关注重要的词**。注意力机制让AI学会这种能力。
 
-**生活例子**:
+**生活例子**：
 ```
 句子: "小明昨天在图书馆借了一本关于人工智能的书"
 
-当问到"谁借了书?"时,你会重点关注:
-- "小明" ← 最关注(主语)
-- "借" ← 次关注(动作)
+当问到"谁借了书？"时，你会重点关注：
+- "小明" ← 最关注（主语）
+- "借" ← 次关注（动作）
 - 其他词相对不重要
 ```
 
@@ -120,30 +159,31 @@ print(f"Decoded: {decoded_text}")
 Attention(Q, K, V) = softmax(Q @ K^T / √d_k) @ V
 ```
 
-**分解步骤**:
+**分解步骤**：
 1. **Q @ K^T**: 计算每个token之间的相似度
-2. **/ √d_k**: 缩放,防止数值过大
-3. **softmax**: 转换为概率分布(和为1)
-4. **@ V**: 加权求和,得到最终输出
+2. **/ √d_k**: 缩放，防止数值过大
+3. **softmax**: 转换为概率分布（和为1）
+4. **@ V**: 加权求和，得到最终输出
 
 #### 三种注意力类型
 
-**1. Self-Attention (自注意力)**
+**1. Self-Attention（自注意力）**
 - 同一个序列内部的token互相观察
 - 用于Encoder理解序列内部关系
 
-**2. Cross-Attention (交叉注意力)**
+**2. Cross-Attention（交叉注意力）**
 - 一个序列关注另一个序列
 - 用于Decoder关注Encoder的输出
 
-**3. Multi-Head Attention (多头注意力)**
+**3. Multi-Head Attention（多头注意力）**
 - 用多个"视角"同时观察
-- 从不同角度理解,更全面
+- 从不同角度理解，更全面
 
 #### 代码示例
 
 ```python
 from scripts.core.attention import MultiHeadAttention
+import torch
 
 # 创建注意力层
 attention = MultiHeadAttention(d_model=128, nhead=8)
@@ -174,15 +214,15 @@ Input Tokens → Embedding → Positional Encoding
 
 #### Encoder Layer结构
 
-每个Encoder层包含:
+每个Encoder层包含：
 1. **Self-Attention**: token之间互相观察
 2. **Residual Connection**: 原始输入 + 注意力输出
-3. **Layer Normalization**: 归一化,稳定训练
+3. **Layer Normalization**: 归一化，稳定训练
 4. **Feed Forward Network**: 非线性特征变换
 
 #### Decoder Layer结构
 
-每个Decoder层包含:
+每个Decoder层包含：
 1. **Masked Self-Attention**: 防止看到未来token
 2. **Cross-Attention**: 关注Encoder的输出
 3. **Feed Forward Network**: 非线性特征变换
@@ -190,8 +230,8 @@ Input Tokens → Embedding → Positional Encoding
 #### 关键设计
 
 **Positional Encoding**:
-- Transformer没有循环结构,无法感知位置
-- 通过添加位置编码,让模型知道token的顺序
+- Transformer没有循环结构，无法感知位置
+- 通过添加位置编码，让模型知道token的顺序
 
 **Residual Connection**:
 - 解决深层网络的梯度消失问题
@@ -205,6 +245,7 @@ Input Tokens → Embedding → Positional Encoding
 
 ```python
 from scripts.core.transformer import TransformerModel
+import torch
 
 # 创建模型
 model = TransformerModel(
@@ -227,11 +268,11 @@ print(f"Output shape: {output.shape}")  # (1, 5, 1000)
 
 ---
 
-### 2.4 Code Generation (代码生成)
+### 2.4 Code Generation（代码生成）
 
 #### Auto-regressive生成
 
-代码生成是**逐步生成token**的过程:
+代码生成是**逐步生成token**的过程：
 
 ```
 Prompt: "public class User"
@@ -243,19 +284,19 @@ Step 3: 生成 "String"   → "public class User{private String"
 
 #### Temperature采样
 
-Temperature控制生成的随机性:
+Temperature控制生成的随机性：
 
 ```
 Temperature < 1 (如0.3):
-  - 放大高概率,抑制低概率
-  - 更确定性,更少随机
+  - 放大高概率，抑制低概率
+  - 更确定性，更少随机
   
 Temperature = 1:
   - 原始概率分布
   
 Temperature > 1 (如1.5):
   - 平滑概率分布
-  - 更随机,更多样
+  - 更随机，更多样
 ```
 
 #### 四种采样策略
@@ -289,11 +330,11 @@ if result['success']:
 
 ---
 
-### 2.5 Post-processing (后处理)
+### 2.5 Post-processing（后处理）
 
-#### 为什么需要后处理?
+#### 为什么需要后处理？
 
-模型生成的代码可能存在:
+模型生成的代码可能存在：
 - ❌ 括号不匹配
 - ❌ 语法错误
 - ❌ 格式混乱
@@ -310,31 +351,29 @@ if result['success']:
 #### 代码示例
 
 ```python
-from scripts.generation.postprocessor import CodePostProcessor
+from scripts.generation.code_generator import SimplePostProcessor
 
-postprocessor = CodePostProcessor()
+postprocessor = SimplePostProcessor()
 
 # 处理生成的代码
 code = "public class User{private String name;}"
 result = postprocessor.process(code)
 
-print(f"Valid: {result['is_valid']}")
-print(f"Errors: {result['errors']}")
-print(f"Formatted:\n{result['formatted_code']}")
+print(f"Formatted:\n{result}")
 ```
 
 ---
 
-### 2.6 Caching (缓存机制)
+### 2.6 Caching（缓存机制）
 
 #### 两种缓存类型
 
-**1. KV Cache (模型内部优化)**
+**1. KV Cache（模型内部优化）**
 - 避免重复计算历史token的K/V
 - 加速单次生成的每一步
-- 对长序列特别有效(加速10-50倍)
+- 对长序列特别有效（加速10-50倍）
 
-**2. Result Cache (应用层优化)**
+**2. Result Cache（应用层优化）**
 - 缓存完整的生成结果
 - 避免重复生成相同内容
 - 适用于API服务中的重复请求
@@ -350,14 +389,14 @@ print(f"Formatted:\n{result['formatted_code']}")
 #### 代码示例
 
 ```python
-# Result Cache (默认启用)
+# Result Cache（默认启用）
 pipeline = CodeGenerationPipeline(preset='small', cache_size=20)
 
-# 第一次请求(生成并缓存)
+# 第一次请求（生成并缓存）
 result1 = pipeline.generate(prompt="public class User")
 print(f"Source: {result1['source']}")  # 'generated'
 
-# 第二次相同请求(从缓存获取)
+# 第二次相同请求（从缓存获取）
 result2 = pipeline.generate(prompt="public class User")
 print(f"Source: {result2['source']}")  # 'cache'
 ```
@@ -368,22 +407,22 @@ print(f"Source: {result2['source']}")  # 'cache'
 
 ### 3.1 推荐学习顺序
 
-按照以下顺序深入学习各个模块:
+按照以下顺序深入学习各个模块：
 
 ```
-1. Tokenizer (最简单,建立信心)
+1. Tokenizer（最简单，建立信心）
    ↓
-2. Attention (核心机制,重点学习)
+2. Attention（核心机制，重点学习）
    ↓
-3. Transformer (整合Encoder-Decoder)
+3. Transformer（整合Encoder-Decoder）
    ↓
-4. Generator (理解采样策略)
+4. Generator（理解采样策略）
    ↓
-5. PostProcessor (实用技巧)
+5. PostProcessor（实用技巧）
    ↓
-6. Cache/KV Cache (性能优化)
+6. Cache/KV Cache（性能优化）
    ↓
-7. Pipeline (整体流程)
+7. Pipeline（整体流程）
 ```
 
 ### 3.2 每个模块的学习方法
@@ -395,11 +434,11 @@ print(f"Source: {result2['source']}")  # 'cache'
 
 **Step 2: 运行测试**
 - 每个模块都可以独立运行
-- 查看输出,理解工作流程
+- 查看输出，理解工作流程
 
 **Step 3: 修改参数**
-- 改变配置参数,观察效果
-- 尝试不同的输入,理解边界情况
+- 改变配置参数，观察效果
+- 尝试不同的输入，理解边界情况
 
 **Step 4: 手写实现**
 - 尝试从头实现简化版本
@@ -435,52 +474,12 @@ print(f"Large vocab UNK count: {unk_count_large}")
 ```
 
 **思考题**:
-- 为什么词汇表大小会影响UNK数量?
-- 如何平衡词汇表大小和内存占用?
+- 为什么词汇表大小会影响UNK数量？
+- 如何平衡词汇表大小和内存占用？
 
 ---
 
-### 练习2: Attention可视化
-
-**目标**: 理解注意力权重
-
-```python
-from scripts.core.attention import MultiHeadAttention
-import matplotlib.pyplot as plt
-
-# 创建注意力层
-attention = MultiHeadAttention(d_model=128, nhead=8)
-
-# 准备简单输入
-sentence = "the cat sat on the mat"
-tokens = sentence.split()
-seq_len = len(tokens)
-
-query = torch.randn(1, seq_len, 128)
-key = query.clone()
-value = query.clone()
-
-# 前向传播
-_, weights = attention(query, key, value)
-
-# 可视化第一个头的注意力权重
-plt.figure(figsize=(10, 8))
-plt.imshow(weights[0, 0].detach().numpy(), cmap='viridis')
-plt.xticks(range(seq_len), tokens, rotation=45)
-plt.yticks(range(seq_len), tokens)
-plt.colorbar()
-plt.title('Attention Weights (Head 0)')
-plt.tight_layout()
-plt.show()
-```
-
-**思考题**:
-- 对角线附近的值为什么较大?
-- 不同头的注意力模式有何差异?
-
----
-
-### 练习3: Temperature对比
+### 练习2: Temperature对比
 
 **目标**: 理解Temperature对生成的影响
 
@@ -505,17 +504,18 @@ for temp in temperatures:
 ```
 
 **思考题**:
-- 哪个temperature生成的代码质量最高?
-- 为什么过高的temperature会导致代码混乱?
+- 哪个temperature生成的代码质量最高？
+- 为什么过高的temperature会导致代码混乱？
 
 ---
 
-### 练习4: 自定义Preset
+### 练习3: 自定义Preset
 
 **目标**: 掌握配置系统设计
 
 ```python
 from scripts.config.presets import PRESETS
+from scripts.pipeline import CodeGenerationPipeline
 
 # 查看现有preset
 print("Available presets:", list(PRESETS.keys()))
@@ -540,14 +540,14 @@ pipeline = CodeGenerationPipeline(preset='custom')
 ```
 
 **思考题**:
-- 如何根据硬件条件选择合适的preset?
-- d_model和nhead之间有什么关系?
+- 如何根据硬件条件选择合适的preset？
+- d_model和nhead之间有什么关系？
 
 ---
 
 ## 5. 常见问题
 
-### Q1: 为什么生成的代码全是`<UNK>`?
+### Q1: 为什么生成的代码全是`<UNK>`？
 
 **原因**: 词汇表太小或训练数据不足
 
@@ -565,22 +565,22 @@ pipeline = CodeGenerationPipeline(
 
 ---
 
-### Q2: 如何提高生成质量?
+### Q2: 如何提高生成质量？
 
-**短期方案**(调整参数):
+**短期方案**（调整参数）:
 - 增大d_model (128 → 256)
 - 增加层数 (2 → 4)
 - 增大词汇表 (1000 → 2000)
 - 降低temperature (0.7 → 0.5)
 
-**长期方案**(需要训练):
+**长期方案**（需要训练）:
 - 在大量代码数据上预训练
 - 使用BPE分词代替简单分词
 - 增加模型规模到数百万参数
 
 ---
 
-### Q3: 可以用GPU吗?
+### Q3: 可以用GPU吗？
 
 **可以**:
 ```python
@@ -591,44 +591,11 @@ pipeline = CodeGenerationPipeline(preset='small', device='cuda')
 - 安装CUDA版本的PyTorch
 - 有NVIDIA GPU
 
-**加速效果**: 5-10x(取决于GPU型号)
+**加速效果**: 5-10x（取决于GPU型号）
 
 ---
 
-### Q4: 注意力权重怎么看?
-
-**理解Shape**:
-- Shape: (batch, nhead, seq_len_q, seq_len_k)
-- 每行和为1(softmax后)
-- 值越大表示关注度越高
-
-**可视化**:
-```python
-from scripts.utils.visualizer import AttentionVisualizer
-
-visualizer = AttentionVisualizer()
-visualizer.visualize_attention(weights, token_names, head_idx=0, layer_idx=0)
-```
-
----
-
-### Q5: 为什么Decoder需要Causal Mask?
-
-**原因**: 防止看到未来token
-
-**实现**:
-```
-# 下三角矩阵
-mask = [[1, 0, 0],
-        [1, 1, 0],
-        [1, 1, 1]]
-```
-
-如果不加mask,模型在训练时会"作弊",看到未来的token,导致推理时性能下降。
-
----
-
-### Q6: KV Cache和Result Cache有什么区别?
+### Q4: KV Cache和Result Cache有什么区别？
 
 | 特性 | KV Cache | Result Cache |
 |------|----------|--------------|
@@ -639,7 +606,7 @@ mask = [[1, 0, 0],
 
 ---
 
-### Q7: 如何选择sampling strategy?
+### Q5: 如何选择sampling strategy？
 
 **建议**:
 - **代码生成**: Greedy或Temperature=0.5-0.7
@@ -651,15 +618,15 @@ mask = [[1, 0, 0],
 
 ## 🎓 下一步
 
-完成本教程后,你可以:
+完成本教程后，你可以：
 
-1. **阅读进阶指南**: [ADVANCED.md](ADVANCED.md) - 自定义配置、性能优化、扩展开发
+1. **阅读参考手册**: [REFERENCE.md](REFERENCE.md) - 高级配置、API文档、扩展开发
 2. **动手实践**: 尝试第4节的所有练习
-3. **深入研究**: 阅读[完整文档](README_FULL.md)了解所有技术细节
+3. **深入学习数学基础**: [learning-resources/math/](learning-resources/math/) - 线性代数、微积分、概率论
 4. **贡献代码**: 添加新功能或改进现有实现
 
 ---
 
-**祝您学习愉快!**
+**祝您学习愉快！**
 
-*最后更新: 2026-05-25*
+*最后更新: 2026-05-25 | 版本: v2.0-simplified*

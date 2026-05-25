@@ -46,7 +46,7 @@ def demo_basic_generation():
     # 创建管道 (使用small preset,启用 debug_mode)
     pipeline = CodeGenerationPipeline(
         preset='small',
-        device='cpu',
+        device='gpu',
         debug_mode=True  # 启用调试模式
     )
     

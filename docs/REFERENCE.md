@@ -1,7 +1,7 @@
-# 🔧 进阶指南 - 自定义配置与扩展开发
+# 📚 参考手册 - 高级配置与API文档
 
-> **阅读时间**: 60分钟  
-> **目标**: 掌握高级配置、性能优化和扩展开发技巧
+> **阅读时间**: 按需查阅  
+> **目标**: 掌握高级配置、性能优化、扩展开发和完整API参考
 
 ---
 
@@ -12,7 +12,8 @@
 3. [性能优化技巧](#3-性能优化技巧)
 4. [扩展开发](#4-扩展开发)
 5. [调试与诊断](#5-调试与诊断)
-6. [最佳实践](#6-最佳实践)
+6. [API参考](#6-api参考)
+7. [最佳实践](#7-最佳实践)
 
 ---
 
@@ -20,20 +21,20 @@
 
 ### 1.1 Preset设计原理
 
-Preset系统的核心思想是:**预定义常用配置,提供简单接口**。
+Preset系统的核心思想是：**预定义常用配置，提供简单接口**。
 
 **优势**:
-- ✅ 降低认知负担(1个参数 vs 10+个参数)
-- ✅ 避免配置错误(经过验证的配置组合)
-- ✅ 快速上手(无需理解每个参数的含义)
-- ✅ 易于分享("使用small preset"比列出所有参数更清晰)
+- ✅ 降低认知负担（1个参数 vs 10+个参数）
+- ✅ 避免配置错误（经过验证的配置组合）
+- ✅ 快速上手（无需理解每个参数的含义）
+- ✅ 易于分享（"使用small preset"比列出所有参数更清晰）
 
 ### 1.2 Preset结构详解
 
 ```python
 PRESETS = {
     'tiny': {
-        # 元数据(不会传递给Pipeline)
+        # 元数据（不会传递给Pipeline）
         'name': 'Tiny (超小型)',
         'description': '用于快速测试和理解基本原理',
         'use_case': '教学演示、快速原型验证',
@@ -48,11 +49,36 @@ PRESETS = {
         'max_seq_length': 64,       # 最大序列长度
         'cache_size': 20,           # 结果缓存大小
     },
-    # ... small, medium
+    'small': {
+        'name': 'Small (小型)',
+        'description': '平衡性能和速度，默认推荐',
+        'use_case': '日常使用、学习研究',
+        'vocab_size': 1000,
+        'd_model': 128,
+        'nhead': 8,
+        'num_encoder_layers': 2,
+        'num_decoder_layers': 2,
+        'dim_feedforward': 512,
+        'max_seq_length': 128,
+        'cache_size': 50,
+    },
+    'medium': {
+        'name': 'Medium (中型)',
+        'description': '更强表达能力',
+        'use_case': '质量要求较高的场景',
+        'vocab_size': 2000,
+        'd_model': 256,
+        'nhead': 16,
+        'num_encoder_layers': 4,
+        'num_decoder_layers': 4,
+        'dim_feedforward': 1024,
+        'max_seq_length': 256,
+        'cache_size': 100,
+    }
 }
 ```
 
-### 1.3 如何选择Preset?
+### 1.3 如何选择Preset？
 
 | Preset | 参数量 | 显存占用 | 生成速度 | 适用场景 |
 |--------|--------|---------|---------|----------|
@@ -62,13 +88,13 @@ PRESETS = {
 
 **决策流程**:
 ```
-需要最快运行? → tiny
+需要最快运行？ → tiny
     ↓ 否
-内存有限(<1GB)? → tiny
+内存有限(<1GB)？ → tiny
     ↓ 否
-需要平衡质量和速度? → small (默认推荐)
+需要平衡质量和速度？ → small（默认推荐）
     ↓ 否
-追求更高生成质量? → medium
+追求更高生成质量？ → medium
 ```
 
 ---
@@ -77,19 +103,19 @@ PRESETS = {
 
 ### 2.1 覆盖Preset参数
 
-你可以在preset基础上覆盖特定参数:
+你可以在preset基础上覆盖特定参数：
 
 ```python
 from scripts.pipeline import CodeGenerationPipeline
 
-# 基于small preset,但增大词汇表
+# 基于small preset，但增大词汇表
 pipeline = CodeGenerationPipeline(
     preset='small',
     vocab_size=3000,  # 覆盖默认的1000
     device='cpu'
 )
 
-# 基于tiny preset,但增加层数
+# 基于tiny preset，但增加层数
 pipeline = CodeGenerationPipeline(
     preset='tiny',
     num_encoder_layers=2,  # 覆盖默认的1
@@ -119,29 +145,10 @@ PRESETS['my_custom'] = {
 }
 ```
 
-**方法2: 运行时动态创建**
-
-```python
-from scripts.config.presets import get_preset_config
-
-# 获取基础配置
-config = get_preset_config('small')
-
-# 自定义修改
-config['vocab_size'] = 2500
-config['d_model'] = 192
-config['nhead'] = 8
-
-# 手动创建Pipeline
-from scripts.pipeline import CodeGenerationPipeline
-
-pipeline = CodeGenerationPipeline.__new__(CodeGenerationPipeline)
-# ... 手动初始化(不推荐,建议使用方法1)
-```
-
 ### 2.3 参数关系与约束
 
 **关键约束**:
+
 1. `d_model` 必须能被 `nhead` 整除
    ```python
    # ✅ 正确
@@ -158,7 +165,7 @@ pipeline = CodeGenerationPipeline.__new__(CodeGenerationPipeline)
    d_model=256, dim_feedforward=1024 # 4x
    ```
 
-3. `max_seq_length` 影响显存占用(O(n²))
+3. `max_seq_length` 影响显存占用（O(n²)）
    ```python
    # 谨慎设置
    max_seq_length=64   # 安全
@@ -176,15 +183,6 @@ pipeline = CodeGenerationPipeline.__new__(CodeGenerationPipeline)
 pipeline = CodeGenerationPipeline(preset='small', device='cuda')
 ```
 
-**多GPU支持**(实验性):
-```python
-import torch.nn as nn
-
-model = pipeline.model
-if torch.cuda.device_count() > 1:
-    model = nn.DataParallel(model)
-```
-
 **性能对比**:
 | 设备 | 生成速度(tokens/s) | 加速比 |
 |------|-------------------|--------|
@@ -194,16 +192,16 @@ if torch.cuda.device_count() > 1:
 
 ### 3.2 KV Cache优化
 
-**自动启用**(默认开启):
+**自动启用**（默认开启）：
 ```python
 # KV Cache在TransformerModel内部自动管理
 result = pipeline.generate(prompt="...", max_length=100)
 ```
 
 **性能提升**:
-- 短序列(<50 tokens): 2-5x加速
-- 中等序列(50-200 tokens): 10-30x加速
-- 长序列(>200 tokens): 30-50x加速
+- 短序列（<50 tokens）: 2-5x加速
+- 中等序列（50-200 tokens）: 10-30x加速
+- 长序列（>200 tokens）: 30-50x加速
 
 **显存权衡**:
 ```python
@@ -211,21 +209,7 @@ result = pipeline.generate(prompt="...", max_length=100)
 # 示例: 1 × 100 × 128 × 4 × 2 = 102,400 floats ≈ 400KB
 ```
 
-### 3.3 批量生成优化
-
-**并行生成多个样本**:
-```python
-results = pipeline.generate_multiple_samples(
-    prompt="public class UserService",
-    num_samples=5,
-    temperatures=[0.5, 0.6, 0.7, 0.8, 0.9],
-    batch_size=2  # 每次并行生成2个
-)
-```
-
-**注意**: 真正的批量化需要修改代码以支持batch处理。
-
-### 3.4 内存优化
+### 3.3 内存优化
 
 **减少显存占用**:
 ```python
@@ -249,7 +233,7 @@ torch.cuda.empty_cache()  # 如果使用GPU
 
 ### 4.1 添加新的采样策略
 
-**步骤1: 在Generator中添加新方法**
+**步骤1: 在CodeGenerator中添加新方法**
 
 ```python
 # scripts/generation/code_generator.py
@@ -271,7 +255,7 @@ class CodeGenerator:
         probs = torch.softmax(logits, dim=-1)
         top_probs, top_indices = torch.topk(probs, beam_width)
         
-        # 简单的beam search实现(简化版)
+        # 简单的beam search实现（简化版）
         selected_idx = torch.multinomial(top_probs, 1)
         return top_indices[selected_idx]
 ```
@@ -325,10 +309,10 @@ class AdvancedTokenizer(SimpleTokenizer):
 
 ### 4.3 添加新的后处理规则
 
-**扩展现有PostProcessor**:
+**扩展现有PostProcessor（在CodeGenerator内部）**:
 
 ```python
-from scripts.generation.postprocessor import CodePostProcessor
+from scripts.generation.code_generator import CodePostProcessor
 
 class JavaCodePostProcessor(CodePostProcessor):
     def __init__(self):
@@ -361,34 +345,6 @@ class JavaCodePostProcessor(CodePostProcessor):
         return result
 ```
 
-### 4.4 集成外部工具
-
-**集成代码格式化器**:
-
-```python
-import subprocess
-
-class FormattedPostProcessor(CodePostProcessor):
-    def format_with_external_tool(self, code, language='java'):
-        """使用外部工具格式化代码"""
-        
-        if language == 'java':
-            # 使用google-java-format
-            try:
-                result = subprocess.run(
-                    ['google-java-format', '-'],
-                    input=code,
-                    capture_output=True,
-                    text=True
-                )
-                return result.stdout
-            except FileNotFoundError:
-                print("Warning: google-java-format not found")
-                return code
-        
-        return code
-```
-
 ---
 
 ## 5. 调试与诊断
@@ -418,25 +374,7 @@ result = pipeline.generate(
 )
 ```
 
-### 5.2 日志分析
-
-**查看日志文件**:
-```bash
-# 日志文件位于 logs/ 目录
-ls logs/
-
-# 查看最新日志
-cat logs/main_*.log | tail -100
-```
-
-**自定义日志级别**:
-```python
-from scripts.utils.logger import setup_logger
-
-logger = setup_logger(__name__, level='DEBUG')  # 或 'INFO', 'WARNING', 'ERROR'
-```
-
-### 5.3 性能分析
+### 5.2 性能分析
 
 **使用Python profiler**:
 ```python
@@ -472,20 +410,17 @@ print(f"Generation time: {elapsed:.4f}s")
 print(f"Tokens/sec: {result['token_count']/elapsed:.2f}")
 ```
 
-### 5.4 常见问题诊断
+### 5.3 常见问题诊断
 
 **问题1: 生成速度慢**
 
-诊断步骤:
+诊断步骤：
 ```python
 # 1. 检查是否在使用CPU
 print(f"Device: {pipeline.device}")
 
 # 2. 检查序列长度
 print(f"Max sequence length: {pipeline.model.max_seq_length}")
-
-# 3. 检查KV Cache是否启用
-# (查看TransformerModel源码中的use_cache参数)
 
 # 解决方案:
 # - 切换到GPU
@@ -495,7 +430,7 @@ print(f"Max sequence length: {pipeline.model.max_seq_length}")
 
 **问题2: 内存不足**
 
-诊断步骤:
+诊断步骤：
 ```python
 import psutil
 import torch
@@ -504,7 +439,7 @@ import torch
 memory = psutil.virtual_memory()
 print(f"Memory usage: {memory.percent}%")
 
-# 检查GPU显存(如果使用GPU)
+# 检查GPU显存（如果使用GPU）
 if torch.cuda.is_available():
     print(f"GPU memory allocated: {torch.cuda.memory_allocated()/1e9:.2f}GB")
 
@@ -517,7 +452,7 @@ if torch.cuda.is_available():
 
 **问题3: 生成质量差**
 
-诊断步骤:
+诊断步骤：
 ```python
 # 1. 检查UNK比例
 tokens = tokenizer.encode(prompt)[0]
@@ -535,9 +470,135 @@ print(f"UNK ratio: {unk_ratio:.2%}")
 
 ---
 
-## 6. 最佳实践
+## 6. API参考
 
-### 6.1 配置选择指南
+### 6.1 核心模块
+
+| 模块 | 行数 | 功能 |
+|------|------|------|
+| [tokenizer.py](../scripts/core/tokenizer.py) | 488 | Tokenizer（支持UNK检测、mask生成） |
+| [attention.py](../scripts/core/attention.py) | 556 | 多头注意力机制（Self/Cross/Multi-Head） |
+| [transformer.py](../scripts/core/transformer.py) | 969 | Transformer完整架构（Encoder+Decoder） |
+| [code_generator.py](../scripts/generation/code_generator.py) | 402 | 代码生成器+后处理器（4种采样策略） |
+| [cache.py](../scripts/optimization/cache.py) | 418 | 结果缓存机制（加速重复查询） |
+| [kv_cache.py](../scripts/optimization/kv_cache.py) | 408 | KV Cache优化（推理加速10-50倍） |
+| [pipeline.py](../scripts/pipeline.py) | 582 | 完整流程整合（端到端管道） |
+| [visualizer.py](../scripts/utils/visualizer.py) | 389 | 可视化工具（注意力热力图、架构图） |
+| [presets.py](../scripts/config/presets.py) | ~100 | Preset配置系统 |
+| [logger.py](../scripts/utils/logger.py) | ~200 | 日志管理工具 |
+
+### 6.2 CodeGenerationPipeline
+
+**初始化**:
+```python
+pipeline = CodeGenerationPipeline(
+    preset='small',      # Preset配置（必需）
+    device='cpu',        # 设备：'cpu' 或 'cuda'
+    cache_size=50,       # 结果缓存大小
+    debug_mode=False     # Debug模式
+)
+```
+
+**主要方法**:
+
+1. **generate()** - 生成代码
+   ```python
+   result = pipeline.generate(
+       prompt="public class User",  # 输入提示
+       max_length=50,               # 最大生成长度
+       temperature=0.7,             # 温度参数
+       strategy='greedy',           # 采样策略
+       verbose=False                # 是否打印详细信息
+   )
+   ```
+   
+   **返回值**:
+   ```python
+   {
+       'success': True,                    # 是否成功
+       'code': '...',                      # 生成的代码
+       'processed_code': '...',            # 后处理后的代码
+       'processing_time': 1.23,            # 处理时间（秒）
+       'token_count': 50,                  # Token数量
+       'source': 'generated'               # 来源：'generated' 或 'cache'
+   }
+   ```
+
+2. **generate_multiple_samples()** - 多样本生成
+   ```python
+   samples = pipeline.generate_multiple_samples(
+       prompt="public class User",
+       num_samples=3,
+       temperatures=[0.5, 0.7, 1.0]
+   )
+   ```
+
+### 6.3 SimpleTokenizer
+
+**初始化**:
+```python
+tokenizer = SimpleTokenizer(
+    vocab_size=1000,     # 词汇表大小
+    debug_mode=False     # Debug模式
+)
+```
+
+**主要方法**:
+
+1. **encode()** - 编码文本
+   ```python
+   token_ids, mask = tokenizer.encode("public class User")
+   ```
+
+2. **decode()** - 解码Token IDs
+   ```python
+   text = tokenizer.decode(token_ids)
+   ```
+
+### 6.4 MultiHeadAttention
+
+**初始化**:
+```python
+attention = MultiHeadAttention(
+    d_model=128,         # 模型维度
+    nhead=8,             # 注意力头数
+    dropout=0.1,         # Dropout率
+    debug_mode=False     # Debug模式
+)
+```
+
+**前向传播**:
+```python
+output, weights = attention(query, key, value, mask=None)
+```
+
+### 6.5 TransformerModel
+
+**初始化**:
+```python
+model = TransformerModel(
+    vocab_size=1000,             # 词汇表大小
+    d_model=128,                 # 模型维度
+    nhead=8,                     # 注意力头数
+    num_encoder_layers=2,        # Encoder层数
+    num_decoder_layers=2,        # Decoder层数
+    dim_feedforward=512,         # FeedForward维度
+    dropout=0.1,                 # Dropout率
+    max_seq_length=128,          # 最大序列长度
+    debug_mode=False             # Debug模式
+)
+```
+
+**前向传播**:
+```python
+output = model(src, tgt)
+```
+
+---
+
+## 7. 最佳实践
+
+### 7.1 配置选择指南
 
 **场景1: 教学演示**
 ```python
@@ -572,48 +633,7 @@ result = pipeline.generate(
 )
 ```
 
-### 6.2 代码组织建议
-
-**项目结构**:
-```
-my_project/
-├── configs/
-│   └── presets.yaml      # 自定义preset配置
-├── models/
-│   └── checkpoints/      # 保存的模型
-├── scripts/
-│   ├── generate.py       # 生成脚本
-│   └── evaluate.py       # 评估脚本
-├── outputs/
-│   └── generated_code/   # 生成的代码
-└── README.md
-```
-
-### 6.3 版本控制
-
-**推荐的.gitignore**:
-```gitignore
-# Python
-__pycache__/
-*.pyc
-*.pyo
-
-# Logs
-logs/
-
-# Outputs
-outputs/
-visualizations/
-
-# Models
-models/checkpoints/
-
-# IDE
-.vscode/
-.idea/
-```
-
-### 6.4 测试策略
+### 7.2 测试策略
 
 **单元测试示例**:
 ```python
@@ -640,19 +660,54 @@ if __name__ == '__main__':
     unittest.main()
 ```
 
+### 7.3 版本控制
+
+**推荐的.gitignore**:
+```gitignore
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Logs
+logs/
+
+# Outputs
+outputs/
+visualizations/
+
+# Models
+models/checkpoints/
+
+# IDE
+.vscode/
+.idea/
+```
+
+---
+
+## 📚 数学基础索引
+
+如需深入学习Transformer背后的数学原理，请参考：
+
+- [线性代数基础](learning-resources/math/linear_algebra.md) - 向量、矩阵、张量运算
+- [微积分与梯度](learning-resources/math/calculus.md) - 导数、梯度、反向传播
+- [概率论与信息论](learning-resources/math/probability.md) - 概率分布、熵、KL散度
+- [优化理论](learning-resources/math/optimization.md) - 梯度下降、学习率调度、正则化
+
 ---
 
 ## 🎓 下一步
 
-完成本进阶指南后,你可以:
+完成本参考手册后，你可以：
 
-1. **阅读完整文档**: [README_FULL.md](README_FULL.md) - 所有技术细节
-2. **贡献代码**: 提交PR添加新功能或改进
-3. **深入研究**: 阅读Transformer相关论文
-4. **实际应用**: 将系统集成到你的项目中
+1. **动手实践**: 尝试第4节的扩展开发示例
+2. **深入学习**: 阅读[learning-resources/math/](learning-resources/math/)中的数学基础
+3. **贡献代码**: 提交PR添加新功能或改进
+4. **深入研究**: 阅读Transformer相关论文
 
 ---
 
-**祝您开发愉快!**
+**祝您开发愉快！**
 
-*最后更新: 2026-05-25*
+*最后更新: 2026-05-25 | 版本: v2.0-simplified*
