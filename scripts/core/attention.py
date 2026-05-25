@@ -17,19 +17,96 @@ logger = logging.getLogger(__name__)
 
 class MultiHeadAttention(nn.Module):
     """
-    多头注意力机制
+    多头注意力机制 (Multi-Head Attention)
     
-    核心思想：让每个token关注序列中的其他相关token
-    例如：在"public class UserService"中，"class"应该关注"public"和"UserService"
+    ════════════════════════════════════════════════════════════
+    📚 核心概念：为什么需要"多头"？
+    ════════════════════════════════════════════════════════════
+    
+    【直观理解】
+    想象你在阅读一段代码时，会同时从多个角度理解每个token的含义：
+    
+    示例代码: "public class UserService extends BaseService implements IUserService"
+    
+    🔍 角度1 - 语法关系 (Syntactic Head):
+       - "class" 关注 "public" → 确定访问修饰符
+       - "extends" 关注 "class" → 确定继承关系
+       - "implements" 关注 "class" → 确定接口实现
+    
+    🔍 角度2 - 语义关系 (Semantic Head):
+       - "UserService" 关注 "Service" → 理解业务领域
+       - "BaseService" 关注 "Service" → 理解基类功能
+       - "IUserService" 关注 "UserService" → 理解接口对应
+    
+    🔍 角度3 - 结构关系 (Structural Head):
+       - "extends" 关注 "BaseService" → 识别父类
+       - "implements" 关注 "IUserService" → 识别接口
+       - "class" 关注 "UserService" → 识别类名
+    
+    💡 **多头的好处**:
+    每个头可以学习不同的关系模式，就像人类用多维度思维理解语言。
+    如果只有单头，模型只能捕捉一种关系，表达能力受限。
+    
+    【数学原理】
+    ┌─────────────────────────────────────────────────────┐
+    │  Single-Head:  Attention = softmax(QK^T/√d)V        │
+    │                                                       │
+    │  Multi-Head:   head_i = Attention(QW_i^Q, KW_i^K, VW_i^V)  │
+    │                  output = Concat(head_1, ..., head_h)W^O   │
+    │                                                       │
+    │  其中 h = nhead (头的数量)                             │
+    │        d_k = d_model / nhead (每头的维度)              │
+    └─────────────────────────────────────────────────────┘
+    
+    【实际案例对比】
+    ┌─────────────────────────────────────────────────────┐
+    │  GPT-3:    d_model=12288, nhead=96,  d_k=128        │
+    │  BERT:     d_model=768,   nhead=12,  d_k=64         │
+    │  Llama-2:  d_model=4096,  nhead=32,  d_k=128        │
+    │  本项目:   d_model=128,   nhead=8,   d_k=16         │
+    └─────────────────────────────────────────────────────┘
+    
+    核心思想：让每个token关注序列中的其他相关token，但不同头关注不同类型的关系。
+    例如：在"public class UserService"中：
+      - Head 0可能关注语法修饰符(public → class)
+      - Head 1可能关注命名模式(UserService → Service)
+      - Head 2可能关注关键字(class → extends)
+      - ...
     """
     
     def __init__(self, d_model: int = 128, nhead: int = 8, dropout: float = 0.1, debug_mode: bool = False):
         """
+        初始化多头注意力机制
+        
         Args:
             d_model: 模型维度（嵌入维度）
+                    - 决定模型的表达能力
+                    - 越大能捕捉越复杂的模式，但计算成本越高
+                    - 常见值: 128(小型), 512(BERT-base), 768(BERT-large), 4096(Llama)
+            
             nhead: 注意力头的数量
+                   - 必须能整除d_model
+                   - 越多头可以捕捉越多的关系类型
+                   - 常见值: 8(小型), 12(BERT-base), 16(GPT-2 small), 32(Llama)
+                   - 经验法则: d_model / nhead >= 16 (保证每头有足够维度)
+            
             dropout: Dropout概率
+                    - 防止过拟合的正则化技术
+                    - 训练时随机丢弃部分神经元
+                    - 常见值: 0.1(小数据集), 0.05(大数据集), 0.0(微调)
+            
             debug_mode: 是否启用调试模式
+                       - True: 输出详细的中间过程日志
+                       - False: 静默运行，提升性能
+        
+        Raises:
+            AssertionError: 如果d_model不能被nhead整除
+        
+        Example:
+            >>> # 推荐配置
+            >>> attention = MultiHeadAttention(d_model=128, nhead=8)  # 每头16维
+            >>> attention = MultiHeadAttention(d_model=256, nhead=8)  # 每头32维
+            >>> attention = MultiHeadAttention(d_model=512, nhead=16) # 每头32维
         """
         super().__init__()
         
@@ -63,17 +140,83 @@ class MultiHeadAttention(nn.Module):
     def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, 
                 mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
         """
-        前向传播
+        前向传播 - Multi-Head Attention的核心计算流程
+        
+        ════════════════════════════════════════════════════════════
+        📖 7步计算流程（建议对照代码逐行理解）
+        ════════════════════════════════════════════════════════════
+        
+        Step 1: 线性变换并分割成多个头
+          - Q = W_q * query  (Query投影)
+          - K = W_k * key    (Key投影)
+          - V = W_v * value  (Value投影)
+          - 每个从 [batch, seq_len, d_model] 
+            变为 [batch, nhead, seq_len, d_k]
+        
+        Step 2: 计算注意力分数
+          - scores = Q @ K^T / sqrt(d_k)
+          - 点积相似度，除以sqrt(d_k)防止梯度消失
+          - 输出形状: [batch, nhead, seq_len_q, seq_len_k]
+        
+        Step 3: 应用mask（可选）
+          - 对于decoder的causal mask，防止看到未来token
+          - mask=0的位置填充-1e9，softmax后接近0
+        
+        Step 4: Softmax归一化
+          - attention_weights = softmax(scores)
+          - 每行的和为1.0，表示概率分布
+        
+        Step 5: 加权求和
+          - context = attention_weights @ V
+          - 根据注意力权重聚合value信息
+        
+        Step 6: 合并多头
+          - [batch, nhead, seq_len, d_k] 
+          - → [batch, seq_len, nhead, d_k]
+          - → [batch, seq_len, d_model]
+        
+        Step 7: 输出线性变换
+          - output = W_o * context
+          - 融合所有头的信息
         
         Args:
-            query: [batch_size, seq_len, d_model]
-            key: [batch_size, seq_len, d_model]
-            value: [batch_size, seq_len, d_model]
-            mask: 可选的掩码 [batch_size, 1, 1, seq_len]
+            query: Query张量 [batch_size, seq_len_q, d_model]
+                   - 在self-attention中，query=key=value=embedding
+                   - 在cross-attention中，query来自decoder，key/value来自encoder
             
+            key: Key张量 [batch_size, seq_len_k, d_model]
+                 - 用于计算与query的相似度
+            
+            value: Value张量 [batch_size, seq_len_k, d_model]
+                   - 被注意力权重加权的信息源
+            
+            mask: 可选的掩码张量 [batch_size, 1, 1, seq_len_k]
+                  - 值为0或1，0表示需要屏蔽的位置
+                  - 常见用途:
+                    * Padding mask: 屏蔽序列中的padding token
+                    * Causal mask: decoder中防止看到未来token
+        
         Returns:
-            output: [batch_size, seq_len, d_model]
-            attention_weights: [batch_size, nhead, seq_len, seq_len]
+            output: 注意力输出 [batch_size, seq_len_q, d_model]
+                    - 融合了全局上下文信息的表示
+            
+            attention_weights: 注意力权重 [batch_size, nhead, seq_len_q, seq_len_k]
+                               - 可用于可视化，观察模型关注哪些位置
+                               - 第i行第j列表示query_i对key_j的关注程度
+        
+        Example:
+            >>> # Self-attention示例
+            >>> batch_size, seq_len, d_model = 2, 10, 128
+            >>> embedding = torch.randn(batch_size, seq_len, d_model)
+            >>> output, weights = attention(embedding, embedding, embedding)
+            >>> print(output.shape)   # [2, 10, 128]
+            >>> print(weights.shape)  # [2, 8, 10, 10]
+            
+            >>> # Cross-attention示例 (Decoder关注Encoder)
+            >>> encoder_output = torch.randn(2, 15, 128)  # Encoder输出
+            >>> decoder_hidden = torch.randn(2, 10, 128)  # Decoder隐藏状态
+            >>> output, weights = attention(decoder_hidden, encoder_output, encoder_output)
+            >>> print(output.shape)   # [2, 10, 128] - Decoder维度
         """
         batch_size = query.size(0)
         seq_len_q = query.size(1)
@@ -86,8 +229,27 @@ class MultiHeadAttention(nn.Module):
             logger.debug(f"  - Key sequence length: {seq_len_k}")
             logger.debug(f"  - Input shape: {query.shape}")
         
-        # 1. 线性变换并分割成多个头
-        # [batch, seq_len, d_model] -> [batch, seq_len, nhead, d_k] -> [batch, nhead, seq_len, d_k]
+        # ════════════════════════════════════════════════════════
+        # Step 1: 线性变换并分割成多个头
+        # ════════════════════════════════════════════════════════
+        # 
+        # 【为什么要分割？】
+        # 将d_model维度拆分成nhead个小维度，让每个头独立学习不同的关系模式。
+        # 例如：d_model=128, nhead=8 → 每头16维
+        #   - Head 0: 关注语法关系 (public → class)
+        #   - Head 1: 关注命名模式 (UserService → Service)
+        #   - Head 2: 关注继承关系 (extends → BaseService)
+        #   - ...
+        #
+        # 【形状变换详解】
+        # [batch, seq_len, d_model]  (原始输入)
+        #   ↓ self.W_q(query)  (线性投影)
+        # [batch, seq_len, d_model]
+        #   ↓ .view(batch, seq_len, nhead, d_k)  (重塑)
+        # [batch, seq_len, 8, 16]
+        #   ↓ .transpose(1, 2)  (交换维度，方便矩阵运算)
+        # [batch, 8, seq_len, 16]  (最终Q/K/V的形状)
+        #
         Q = self.W_q(query).view(batch_size, seq_len_q, self.nhead, self.d_k).transpose(1, 2)
         K = self.W_k(key).view(batch_size, seq_len_k, self.nhead, self.d_k).transpose(1, 2)
         V = self.W_v(value).view(batch_size, seq_len_k, self.nhead, self.d_k).transpose(1, 2)
@@ -95,22 +257,73 @@ class MultiHeadAttention(nn.Module):
         if self.debug_mode:
             logger.debug(f"  - Q/K/V shape after split: {Q.shape}")
         
-        # 2. 计算注意力分数: Q * K^T / sqrt(d_k)
-        # [batch, nhead, seq_len, d_k] @ [batch, nhead, d_k, seq_len] 
-        # -> [batch, nhead, seq_len, seq_len]
+        # ════════════════════════════════════════════════════════
+        # Step 2: 计算注意力分数 (Scaled Dot-Product Attention)
+        # ════════════════════════════════════════════════════════
+        #
+        # 【数学公式】
+        # scores = Q @ K^T / sqrt(d_k)
+        #
+        # 【为什么除以sqrt(d_k)？】
+        # - 当d_k较大时，点积结果会很大，导致softmax梯度接近0
+        # - 除以sqrt(d_k)可以保持方差稳定在1附近
+        # - 这是Transformer论文的关键创新之一
+        #
+        # 【形状变化】
+        # Q: [batch, 8, seq_len_q, 16]
+        # K^T: [batch, 8, 16, seq_len_k]  (转置最后两维)
+        #   ↓ torch.matmul(Q, K.transpose(-2, -1))
+        # scores: [batch, 8, seq_len_q, seq_len_k]
+        #   ↓ / math.sqrt(self.d_k)
+        # scores: [batch, 8, seq_len_q, seq_len_k]  (缩放后)
+        #
+        # 【物理意义】
+        # scores[i, j] 表示第i个query token对第j个key token的关注程度
+        # 值越大表示越相关，后续softmax会将其转化为概率
+        #
         scores = torch.matmul(Q, K.transpose(-2, -1)) / math.sqrt(self.d_k)
         
         if self.debug_mode:
             logger.debug(f"  - Attention scores shape: {scores.shape}")
         
-        # 3. 应用mask（如果有）
+        # ════════════════════════════════════════════════════════
+        # Step 3: 应用mask（如果有）
+        # ════════════════════════════════════════════════════════
+        #
+        # 【Mask的作用】
+        # 防止模型关注不应该看到的位置：
+        #   1. Padding Mask: 屏蔽序列中的<pad> token
+        #      - 例如: "public class UserService <pad> <pad>"
+        #      - 不应该关注<pad>，因为它们没有实际意义
+        #
+        #   2. Causal Mask (Decoder): 防止看到未来token
+        #      - 生成第t个token时，只能看到前t-1个token
+        #      - 否则会出现"偷看答案"的问题
+        #
+        # 【实现方式】
+        # mask中值为0的位置会被填充为-1e9（极小值）
+        # softmax(-1e9) ≈ 0，这样这些位置的权重就接近0
+        #
         if mask is not None:
             # mask为0的位置填充极小值，使softmax后接近0
             scores = scores.masked_fill(mask == 0, -1e9)
             if self.debug_mode:
                 logger.debug(f"  - Applied mask")
         
-        # 4. Softmax获取注意力权重
+        # ════════════════════════════════════════════════════════
+        # Step 4: Softmax获取注意力权重
+        # ════════════════════════════════════════════════════════
+        #
+        # 【Softmax的作用】
+        # 将原始分数(scores)转化为概率分布(attention_weights)
+        #   - 所有权重的和为1.0
+        #   - 权重越大表示越重要
+        #
+        # 【Dropout的作用】
+        # 训练时随机丢弃部分注意力权重，防止过拟合
+        #   - 测试时dropout不生效
+        #   - 类似图像数据增强中的随机裁剪
+        #
         attention_weights = self.softmax(scores)
         attention_weights = self.dropout(attention_weights)
         
@@ -121,16 +334,58 @@ class MultiHeadAttention(nn.Module):
             logger.debug(f"  - Attention weights shape: {attention_weights.shape}")
             logger.debug(f"  - Attention weights sum (should be 1.0): {attention_weights.sum(dim=-1).mean().item():.4f}")
         
-        # 5. 加权求和: Attention * V
-        # [batch, nhead, seq_len, seq_len] @ [batch, nhead, seq_len, d_k]
-        # -> [batch, nhead, seq_len, d_k]
+        # ════════════════════════════════════════════════════════
+        # Step 5: 加权求和 (Context聚合)
+        # ════════════════════════════════════════════════════════
+        #
+        # 【核心思想】
+        # 根据注意力权重，从Value中提取相关信息
+        #   context_i = Σ_j (attention_weights[i,j] * V[j])
+        #
+        # 【直观理解】
+        # 如果token i关注token j的程度是0.3，那么V[j]的信息会以0.3的权重
+        # 加入到context[i]中。这样context[i]就融合了全局的上下文信息。
+        #
+        # 【形状变化】
+        # attention_weights: [batch, 8, seq_len_q, seq_len_k]
+        # V:                 [batch, 8, seq_len_k, 16]
+        #   ↓ torch.matmul(attention_weights, V)
+        # context:           [batch, 8, seq_len_q, 16]
+        #
         context = torch.matmul(attention_weights, V)
         
-        # 6. 合并多头
-        # [batch, nhead, seq_len_q, d_k] -> [batch, seq_len_q, nhead, d_k] -> [batch, seq_len_q, d_model]
+        # ════════════════════════════════════════════════════════
+        # Step 6: 合并多头
+        # ════════════════════════════════════════════════════════
+        #
+        # 【为什么要合并？】
+        # 每个头学习了不同的关系模式，现在需要将所有头的信息融合起来。
+        #   - Head 0: 语法关系信息
+        #   - Head 1: 语义关系信息
+        #   - Head 2: 结构关系信息
+        #   - ... → 拼接成完整的表示
+        #
+        # 【形状变换详解】
+        # [batch, 8, seq_len_q, 16]  (8个头分开)
+        #   ↓ .transpose(1, 2)  (交换维度)
+        # [batch, seq_len_q, 8, 16]
+        #   ↓ .contiguous().view(batch, seq_len_q, 8*16)  (重塑)
+        # [batch, seq_len_q, 128]  (合并回d_model)
+        #
         context = context.transpose(1, 2).contiguous().view(batch_size, seq_len_q, self.d_model)
         
-        # 7. 输出线性变换
+        # ════════════════════════════════════════════════════════
+        # Step 7: 输出线性变换
+        # ════════════════════════════════════════════════════════
+        #
+        # 【作用】
+        # W_o是一个可学习的线性变换，用于融合所有头的信息。
+        # 如果没有这一层，相当于简单拼接8个头的输出，表达能力受限。
+        #
+        # 【类比】
+        # 就像把8个专家的意见汇总后，再由一个决策者做最终判断。
+        # W_o就是这个"决策者"，学习如何最佳地组合各个头的信息。
+        #
         output = self.W_o(context)
         
         if self.debug_mode:

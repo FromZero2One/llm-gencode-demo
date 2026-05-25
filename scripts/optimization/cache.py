@@ -1,6 +1,32 @@
 """
 缓存模块 - 实现生成结果的缓存机制
 提高重复或相似请求的响应速度
+
+╔═══════════════════════════════════════════════════════════╗
+║  📚 为什么需要缓存？                                     ║
+╚═══════════════════════════════════════════════════════════╝
+
+在代码生成场景中，用户经常会提出相似的请求：
+  - "创建一个UserService类"
+  - "创建一个UserController类"
+  - "创建一个OrderService类"
+
+如果没有缓存，每次都要重新生成，浪费计算资源。
+通过缓存，我们可以：
+  1. 精确匹配：完全相同的请求直接返回缓存结果
+  2. 语义匹配：相似的请求可以复用已有的生成结果
+  3. 性能提升：缓存命中时响应时间从秒级降至毫秒级
+
+【LRU策略】
+Least Recently Used（最近最少使用）是最常用的缓存淘汰策略：
+  - 核心思想：如果数据最近被访问过，那么将来被访问的几率也更高
+  - 实现方式：使用OrderedDict保持插入顺序，新访问的移到末尾
+  - 淘汰规则：缓存满时，删除最久未访问的条目
+
+【实际应用案例】
+  - GitHub Copilot: 缓存常见的代码模式
+  - Tabnine: 缓存频繁使用的代码片段
+  - Amazon CodeWhisperer: 缓存安全相关的代码建议
 """
 
 import sys
@@ -13,10 +39,98 @@ from scripts.utils.logger import logging_context
 
 class GenerationCache:
     """
-    生成结果缓存
+    生成结果缓存 (Generation Cache)
     
-    使用LRU（Least Recently Used）策略管理缓存
-    支持基于语义相似度的缓存查找
+    ════════════════════════════════════════════════════════════
+    🎯 核心功能
+    ════════════════════════════════════════════════════════════
+    
+    1. **精确缓存查找** (get/put)
+       - 基于MD5哈希的快速查找 O(1)
+       - 适用于完全相同的请求
+       
+    2. **语义缓存查找** (get_similar)
+       - 提取关键特征（如关键字、类名）
+       - 相似的请求可以复用缓存结果
+       - 例如："创建UserService" 和 "创建UserController" 
+               都包含"创建"和"Service/Controller"模式
+    
+    3. **LRU淘汰策略**
+       - 缓存满时自动删除最久未使用的条目
+       - 保持高频访问的内容在缓存中
+    
+    4. **统计信息**
+       - 命中率、未命中率、淘汰次数
+       - 帮助优化缓存大小配置
+    
+    ════════════════════════════════════════════════════════════
+    📖 使用示例
+    ════════════════════════════════════════════════════════════
+    
+    Example 1: 基本用法
+        >>> cache = GenerationCache(max_size=100)
+        >>> 
+        >>> # 首次生成（未命中）
+        >>> result = cache.get("public class UserService")
+        >>> if result is None:
+        ...     result = generate_code("public class UserService")
+        ...     cache.put("public class UserService", result)
+        >>> 
+        >>> # 再次生成（命中）
+        >>> cached_result = cache.get("public class UserService")
+        >>> print(f"从缓存获取: {cached_result[:50]}...")
+    
+    Example 2: 语义缓存
+        >>> cache = GenerationCache(max_size=100)
+        >>> 
+        >>> # 缓存一个请求
+        >>> cache.put("创建UserService类", "class UserService { ... }")
+        >>> 
+        >>> # 查找相似的请求
+        >>> similar = cache.get_similar("创建OrderService类")
+        >>> if similar:
+        ...     print(f"找到相似结果: {similar[:50]}...")
+    
+    Example 3: 查看统计信息
+        >>> cache.display_stats()
+        [Cache] 缓存统计信息
+        ============================================================
+          当前大小: 50/100
+          总请求数: 200
+          命中次数: 80
+          未命中次数: 120
+          淘汰次数: 10
+          命中率: 40.00%
+          平均访问次数: 2.50
+        ============================================================
+    
+    ════════════════════════════════════════════════════════════
+    🔧 内部实现细节
+    ════════════════════════════════════════════════════════════
+    
+    数据结构:
+      - cache: OrderedDict[str, Dict]  # 哈希 -> 缓存条目
+      - access_count: Dict[str, int]   # 哈希 -> 访问次数
+      - stats: Dict                    # 统计信息
+    
+    缓存条目结构:
+      {
+          'prompt': str,              # 原始提示文本
+          'result': str,              # 生成结果
+          'semantic_hash': str,       # 语义哈希
+          'timestamp': float,         # 时间戳
+          'prompt_length': int,       # 提示长度
+          'result_length': int        # 结果长度
+      }
+    
+    哈希算法:
+      - 精确哈希: MD5(prompt) → 64位十六进制字符串
+      - 语义哈希: MD5(sorted(keywords)) → 提取关键字后排序再哈希
+    
+    时间复杂度:
+      - get(): O(1)  # 哈希表查找
+      - put(): O(1)  # 哈希表插入
+      - get_similar(): O(n)  # 需要遍历所有缓存条目
     """
     
     def __init__(self, max_size: int = 100):

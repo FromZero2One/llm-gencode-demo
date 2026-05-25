@@ -43,14 +43,9 @@ def demo_basic_generation():
     print(" " * 20 + "演示1: 基本代码生成流程")
     print("="*80)
     
-    # 创建管道 (启用 debug_mode)
+    # 创建管道 (使用small preset,启用 debug_mode)
     pipeline = CodeGenerationPipeline(
-        vocab_size=1000,
-        d_model=128,
-        nhead=8,
-        num_encoder_layers=2,
-        num_decoder_layers=2,
-        cache_size=10,
+        preset='small',
         device='cpu',
         debug_mode=True  # 启用调试模式
     )
@@ -96,11 +91,7 @@ def demo_sampling_strategies():
     print("="*80)
     
     pipeline = CodeGenerationPipeline(
-        vocab_size=1000,
-        d_model=128,
-        nhead=8,
-        num_encoder_layers=2,
-        num_decoder_layers=2,
+        preset='small',
         device='cpu'
     )
     
@@ -140,12 +131,7 @@ def demo_cache_mechanism():
     print("="*80)
     
     pipeline = CodeGenerationPipeline(
-        vocab_size=1000,
-        d_model=128,
-        nhead=8,
-        num_encoder_layers=1,
-        num_decoder_layers=1,
-        cache_size=5,
+        preset='tiny',  # 使用tiny更快
         device='cpu'
     )
     
@@ -183,11 +169,7 @@ def demo_multiple_samples():
     print("="*80)
     
     pipeline = CodeGenerationPipeline(
-        vocab_size=1000,
-        d_model=128,
-        nhead=8,
-        num_encoder_layers=2,
-        num_decoder_layers=2,
+        preset='small',
         device='cpu'
     )
     
@@ -245,12 +227,7 @@ def interactive_mode():
     print("输入 'help' 查看帮助\n")
     
     pipeline = CodeGenerationPipeline(
-        vocab_size=1000,
-        d_model=128,
-        nhead=8,
-        num_encoder_layers=2,
-        num_decoder_layers=2,
-        cache_size=20,
+        preset='small',
         device='cpu'
     )
     

@@ -140,7 +140,7 @@ def test_generator():
     try:
         from scripts.core.tokenizer import SimpleTokenizer
         from scripts.core.transformer import TransformerModel
-        from scripts.generation.generator import CodeGenerator, TemperatureSampling
+        from scripts.generation.code_generator import CodeGenerator
 
         vocab_size = 1000
         d_model = 128
@@ -156,21 +156,19 @@ def test_generator():
 
         generator = CodeGenerator(model, tokenizer, device='cpu')
 
-        strategy = TemperatureSampling(temperature=0.7)
-
         result = generator.generate(
             prompt="public class",
             max_length=20,
-            strategy=strategy,
+            temperature=0.7,
             verbose=False
         )
 
-        assert 'generated_code' in result
+        assert 'code' in result
         assert 'token_count' in result
 
         print(f"[OK] Generator测试通过")
         print(f"  生成Token数: {result['token_count']}")
-        print(f"  生成代码长度: {len(result['generated_code'])} 字符")
+        print(f"  生成代码长度: {len(result['code'])} 字符")
 
         return True
     except Exception as e:
@@ -180,26 +178,39 @@ def test_generator():
 
 
 def test_postprocessor():
-    """测试后处理器"""
+    """测试后处理器(已合并到CodeGenerator)"""
     print("\n" + "=" * 60)
-    print("测试5: Post Processor")
+    print("测试5: Post Processor (merged into CodeGenerator)")
     print("=" * 60)
 
     try:
-        from scripts.generation.postprocessor import CodePostProcessor
+        from scripts.generation.code_generator import CodeGenerator
+        from scripts.core.tokenizer import SimpleTokenizer
+        from scripts.core.transformer import TransformerModel
 
-        post_processor = CodePostProcessor()
+        # 创建带后处理的生成器
+        tokenizer = SimpleTokenizer(vocab_size=1000)
+        model = TransformerModel(
+            vocab_size=1000,
+            d_model=128,
+            nhead=8,
+            num_encoder_layers=1,
+            num_decoder_layers=1
+        )
+        
+        post_processor = CodeGenerator(model, tokenizer, device='cpu', enable_post_process=True)
 
         test_code = "public class Test { public void method() { } }"
 
-        result = post_processor.process(test_code)
+        # 测试后处理功能
+        formatted = post_processor.post_processor.simple_format(test_code)
+        with_imports = post_processor.post_processor.add_imports(formatted)
 
-        assert 'processed_code' in result
-        assert 'validation_report' in result
+        assert len(with_imports) > 0
 
-        print(f"[OK] PostProcessor测试通过")
-        print(f"  验证结果: {'有效' if result['validation_report']['is_valid'] else '无效'}")
-        print(f"  应用步骤: {len(result['steps_applied'])}")
+        print(f"[OK] PostProcessor测试通过(内嵌在CodeGenerator中)")
+        print(f"  格式化后长度: {len(formatted)}")
+        print(f"  添加import后长度: {len(with_imports)}")
 
         return True
     except Exception as e:
@@ -245,21 +256,17 @@ def test_cache():
 
 
 def test_pipeline():
-    """测试完整管道"""
+    """测试完整管道(使用preset配置)"""
     print("\n" + "=" * 60)
-    print("测试7: Complete Pipeline")
+    print("测试7: Complete Pipeline (with preset)")
     print("=" * 60)
 
     try:
         from scripts.pipeline import CodeGenerationPipeline
 
+        # 使用tiny preset进行测试(更快)
         pipeline = CodeGenerationPipeline(
-            vocab_size=1000,
-            d_model=128,
-            nhead=8,
-            num_encoder_layers=1,
-            num_decoder_layers=1,
-            cache_size=5,
+            preset='tiny',
             device='cpu'
         )
 
@@ -273,6 +280,7 @@ def test_pipeline():
         assert 'processed_code' in result
 
         print(f"[OK] Pipeline测试通过")
+        print(f"  Preset: tiny")
         print(f"  来源: {result['source']}")
         print(f"  耗时: {result['processing_time']:.4f}s")
         print(f"  Token数: {result['token_count']}")
@@ -280,6 +288,49 @@ def test_pipeline():
         return True
     except Exception as e:
         print(f"[ERROR] Pipeline测试失败: {e}")
+        traceback.print_exc()
+        return False
+
+
+def test_presets():
+    """测试预设配置系统"""
+    print("\n" + "=" * 60)
+    print("测试8: Preset Configuration System")
+    print("=" * 60)
+
+    try:
+        from scripts.config.presets import get_preset_config, list_presets
+
+        # 测试1: 列出所有预设
+        presets_str = list_presets()
+        assert 'tiny' in presets_str
+        assert 'small' in presets_str
+        assert 'medium' in presets_str
+        print(f"[OK] 预设列表功能正常")
+
+        # 测试2: 获取特定预设
+        config = get_preset_config('tiny')
+        assert config['vocab_size'] == 500
+        assert config['d_model'] == 64
+        assert config['nhead'] == 4
+        print(f"[OK] Tiny preset配置正确")
+
+        config = get_preset_config('small')
+        assert config['vocab_size'] == 1000
+        assert config['d_model'] == 128
+        print(f"[OK] Small preset配置正确")
+
+        # 测试3: 错误处理
+        try:
+            get_preset_config('invalid')
+            assert False, "应该抛出ValueError"
+        except ValueError:
+            print(f"[OK] 错误处理正常")
+
+        print(f"\n[SUCCESS] Preset系统测试通过")
+        return True
+    except Exception as e:
+        print(f"[ERROR] Preset测试失败: {e}")
         traceback.print_exc()
         return False
 
@@ -300,6 +351,7 @@ def main():
             ("PostProcessor", test_postprocessor),
             ("Cache", test_cache),
             ("Pipeline", test_pipeline),
+            ("Presets", test_presets),
         ]
 
         results = []

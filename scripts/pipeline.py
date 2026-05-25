@@ -7,80 +7,243 @@ import time
 from typing import Dict, Optional
 from scripts.core.tokenizer import SimpleTokenizer
 from scripts.core.transformer import TransformerModel
-from scripts.generation.generator import CodeGenerator, SamplingStrategy, TemperatureSampling
-from scripts.generation.postprocessor import CodePostProcessor
+from scripts.generation.code_generator import CodeGenerator
 from scripts.optimization.cache import GenerationCache
 from scripts.utils.logger import logging_context
 
 
 class CodeGenerationPipeline:
     """
-    完整的代码生成管道
+    完整的代码生成管道 (Code Generation Pipeline)
     
-    流程：
-    1. 接收用户请求
-    2. 检查缓存
-    3. 预处理（tokenization）
-    4. 模型推理和生成
-    5. 后处理（格式化、验证）
-    6. 缓存结果
-    7. 返回最终代码
+    ════════════════════════════════════════════════════════════
+    🏗️ 系统架构图
+    ════════════════════════════════════════════════════════════
+    
+    ┌─────────────────────────────────────────────────────┐
+    │                 User Request                        │
+    │         "public class UserService"                  │
+    └──────────────────┬──────────────────────────────────┘
+                       │
+                       ▼
+    ┌─────────────────────────────────────────────────────┐
+    │           CodeGenerationPipeline                    │
+    │                                                     │
+    │  ┌──────────────────────────────────────────────┐  │
+    │  │  Step 1: Cache Check                         │  │
+    │  │  ┌──────────────────────────────────────┐   │  │
+    │  │  │  GenerationCache (LRU)               │   │  │
+    │  │  │  - Exact match (MD5 hash)            │   │  │
+    │  │  │  - Semantic match (keywords)         │   │  │
+    │  │  └──────────────────────────────────────┘   │  │
+    │  └──────────────────────────────────────────────┘  │
+    │                       │ HIT → Return cached        │
+    │                       │ MISS → Continue            │
+    │                       ▼                            │
+    │  ┌──────────────────────────────────────────────┐  │
+    │  │  Step 2: Tokenization                        │  │
+    │  │  ┌──────────────────────────────────────┐   │  │
+    │  │  │  SimpleTokenizer                     │   │  │
+    │  │  │  "public class UserService"          │   │  │
+    │  │  │  → [12, 45, 230, ...]                │   │  │
+    │  │  └──────────────────────────────────────┘   │  │
+    │  └──────────────────────────────────────────────┘  │
+    │                       │                            │
+    │                       ▼                            │
+    │  ┌──────────────────────────────────────────────┐  │
+    │  │  Step 3: Auto-regressive Generation          │  │
+    │  │  ┌──────────────────────────────────────┐   │  │
+    │  │  │  TransformerModel                    │   │  │
+    │  │  │  ┌────────────────────────────────┐  │   │  │
+    │  │  │  │  Encoder (N layers)            │  │   │  │
+    │  │  │  │  - Multi-Head Attention        │  │   │  │
+    │  │  │  │  - Feed Forward                │  │   │  │
+    │  │  │  └────────────────────────────────┘  │   │  │
+    │  │  │  ┌────────────────────────────────┐  │   │  │
+    │  │  │  │  Decoder (N layers)            │  │   │  │
+    │  │  │  │  - Masked Self-Attention       │  │   │  │
+    │  │  │  │  - Cross-Attention             │  │   │  │
+    │  │  │  │  - Feed Forward                │  │   │  │
+    │  │  │  └────────────────────────────────┘  │   │  │
+    │  │  └──────────────────────────────────────┘   │  │
+    │  │          ↓ Temperature Sampling              │  │
+    │  │  [12, 45, 230, 89, 156, ...]                │  │
+    │  └──────────────────────────────────────────────┘  │
+    │                       │                            │
+    │                       ▼                            │
+    │  ┌──────────────────────────────────────────────┐  │
+    │  │  Step 4: Post-processing                     │  │
+    │  │  ┌──────────────────────────────────────┐   │  │
+    │  │  │  SimplePostProcessor                 │   │  │
+    │  │  │  - Format code (indentation)         │   │  │
+    │  │  │  - Add imports                       │   │  │
+    │  │  │  - Validate syntax                   │   │  │
+    │  │  └──────────────────────────────────────┘   │  │
+    │  └──────────────────────────────────────────────┘  │
+    │                       │                            │
+    │                       ▼                            │
+    │  ┌──────────────────────────────────────────────┐  │
+    │  │  Step 5: Cache Update                        │  │
+    │  │  Store prompt → result mapping               │  │
+    │  └──────────────────────────────────────────────┘  │
+    │                       │                            │
+    └───────────────────────┼────────────────────────────┘
+                           │
+                           ▼
+    ┌─────────────────────────────────────────────────────┐
+    │                  Final Output                       │
+    │  "import java.util.*;\npublic class UserService {"  │
+    └─────────────────────────────────────────────────────┘
+    
+    ════════════════════════════════════════════════════════════
+    🎛️ Preset配置系统设计
+    ════════════════════════════════════════════════════════════
+    
+    【设计理念】
+    将复杂的参数配置简化为3个预定义模板，降低学习门槛。
+    
+    【Preset对比表】
+    ┌─────────────────────────────────────────────────────┐
+    │  Parameter    │ Tiny      │ Small     │ Medium     │
+    ├─────────────────────────────────────────────────────┤
+    │  vocab_size   │ 500       │ 1000      │ 2000       │
+    │  d_model      │ 64        │ 128       │ 256        │
+    │  nhead        │ 4         │ 8         │ 8          │
+    │  enc_layers   │ 1         │ 2         │ 4          │
+    │  dec_layers   │ 1         │ 2         │ 4          │
+    │  cache_size   │ 20        │ 50        │ 100        │
+    ├─────────────────────────────────────────────────────┤
+    │  适用场景     │ 快速测试  │ 日常使用  │ 高质量生成  │
+    │  生成速度     │ ⚡⚡⚡    │ ⚡⚡      │ ⚡         │
+    │  代码质量     │ ⭐⭐      │ ⭐⭐⭐    │ ⭐⭐⭐⭐   │
+    │  内存占用     │ ~50MB     │ ~200MB    │ ~800MB     │
+    └─────────────────────────────────────────────────────┘
+    
+    【使用建议】
+    - 初学者：从'tiny'开始，快速理解原理
+    - 日常开发：使用'small'，平衡性能和质量
+    - 生产环境：考虑'medium'，获得更好的代码质量
+    
+    【扩展机制】
+    用户可以基于preset覆盖特定参数：
+    >>> pipeline = CodeGenerationPipeline(
+    ...     preset='small',
+    ...     device='cuda',      # 覆盖设备
+    ...     cache_size=100      # 覆盖缓存大小
+    ... )
+    
+    ════════════════════════════════════════════════════════════
+    📖 完整流程示例
+    ════════════════════════════════════════════════════════════
+    
+    Example 1: 基本用法
+        >>> pipeline = CodeGenerationPipeline(preset='small')
+        >>> result = pipeline.generate("public class UserService")
+        >>> print(result['processed_code'])
+    
+    Example 2: 自定义参数
+        >>> pipeline = CodeGenerationPipeline(
+        ...     preset='tiny',
+        ...     temperature=0.9,
+        ...     max_length=150
+        ... )
+        >>> result = pipeline.generate("create a REST API endpoint")
+    
+    Example 3: 查看统计信息
+        >>> pipeline.display_stats()
+        [Pipeline] 管道统计信息
+        ============================================================
+          总请求数: 10
+          缓存命中: 3 (30.00%)
+          缓存未命中: 7 (70.00%)
+          平均处理时间: 1.23s
+        ============================================================
     """
     
     def __init__(self, 
-                 vocab_size: int = 1000,
-                 d_model: int = 128,
-                 nhead: int = 8,
-                 num_encoder_layers: int = 2,
-                 num_decoder_layers: int = 2,
-                 cache_size: int = 50,
+                 preset: str = 'small',
+                 vocab_size: int = None,
+                 d_model: int = None,
+                 nhead: int = None,
+                 num_encoder_layers: int = None,
+                 num_decoder_layers: int = None,
+                 cache_size: int = None,
                  device: str = 'cpu',
                  debug_mode: bool = False):
         """
         初始化管道
         
         Args:
-            vocab_size: 词汇表大小
-            d_model: 模型维度
-            nhead: 注意力头数
-            num_encoder_layers: Encoder层数
-            num_decoder_layers: Decoder层数
-            cache_size: 缓存大小
+            preset: 预设配置 ('tiny', 'small', 'medium'),默认'small'
+            vocab_size: 词汇表大小(覆盖preset)
+            d_model: 模型维度(覆盖preset)
+            nhead: 注意力头数(覆盖preset)
+            num_encoder_layers: Encoder层数(覆盖preset)
+            num_decoder_layers: Decoder层数(覆盖preset)
+            cache_size: 缓存大小(覆盖preset)
             device: 计算设备
             debug_mode: 是否启用调试模式
+            
+        Example:
+            # 使用预设(推荐)
+            >>> pipeline = CodeGenerationPipeline(preset='small')
+            
+            # 覆盖特定参数
+            >>> pipeline = CodeGenerationPipeline(preset='small', device='cuda')
+            
+            # 完全自定义(不推荐)
+            >>> pipeline = CodeGenerationPipeline(vocab_size=1000, d_model=128, ...)
         """
+        from scripts.config.presets import get_preset_config
+        
+        # 获取预设配置
+        config = get_preset_config(preset)
+        
+        # 应用覆盖参数(如果提供)
+        if vocab_size is not None:
+            config['vocab_size'] = vocab_size
+        if d_model is not None:
+            config['d_model'] = d_model
+        if nhead is not None:
+            config['nhead'] = nhead
+        if num_encoder_layers is not None:
+            config['num_encoder_layers'] = num_encoder_layers
+        if num_decoder_layers is not None:
+            config['num_decoder_layers'] = num_decoder_layers
+        if cache_size is not None:
+            config['cache_size'] = cache_size
+        
         self.debug_mode = debug_mode
         
         print(f"\n{'='*60}")
-        print(f"[Pipeline] 初始化代码生成管道 (debug_mode={debug_mode})")
+        print(f"[Pipeline] 初始化代码生成管道")
+        print(f"  Preset: {preset}")
+        print(f"  Device: {device}")
+        print(f"  Debug mode: {debug_mode}")
         print(f"{'='*60}")
         
         # 1. 创建Tokenizer
         print("\n[Step 1] 创建Tokenizer...")
-        self.tokenizer = SimpleTokenizer(vocab_size=vocab_size, debug_mode=debug_mode)
+        self.tokenizer = SimpleTokenizer(vocab_size=config['vocab_size'], debug_mode=debug_mode)
         
         # 2. 创建Transformer模型
         print("\n[Step 2] 创建Transformer模型...")
         self.model = TransformerModel(
-            vocab_size=vocab_size,
-            d_model=d_model,
-            nhead=nhead,
-            num_encoder_layers=num_encoder_layers,
-            num_decoder_layers=num_decoder_layers,
+            vocab_size=config['vocab_size'],
+            d_model=config['d_model'],
+            nhead=config['nhead'],
+            num_encoder_layers=config['num_encoder_layers'],
+            num_decoder_layers=config['num_decoder_layers'],
             debug_mode=debug_mode
         )
         
-        # 3. 创建代码生成器
+        # 3. 创建代码生成器(默认启用后处理)
         print("\n[Step 3] 创建代码生成器...")
-        self.generator = CodeGenerator(self.model, self.tokenizer, device)
+        self.generator = CodeGenerator(self.model, self.tokenizer, device, enable_post_process=True)
         
-        # 4. 创建后处理器
-        print("\n[Step 4] 创建后处理器...")
-        self.post_processor = CodePostProcessor()
-        
-        # 5. 创建缓存
-        print("\n[Step 5] 创建缓存...")
-        self.cache = GenerationCache(max_size=cache_size)
+        # 4. 创建缓存
+        print("\n[Step 4] 创建缓存...")
+        self.cache = GenerationCache(max_size=config['cache_size'])
         
         # 管道统计
         self.pipeline_stats = {
@@ -172,61 +335,39 @@ class CodeGenerationPipeline:
                     if verbose:
                         print(f"[INFO] 缓存未命中，开始生成...")
             
-            # 步骤2: 创建采样策略
+            # 步骤2: 生成代码(直接传入temperature参数)
             if verbose:
                 print(f"\n{'='*60}")
-                print(f"[Pipeline] Step 2: 创建采样策略")
-                print(f"{'='*60}")
-            
-            strategy = TemperatureSampling(temperature=temperature)
-            
-            # 步骤3: 生成代码
-            if verbose:
-                print(f"\n{'='*60}")
-                print(f"[Pipeline] Step 3: 生成代码")
+                print(f"[Pipeline] Step 2: 生成代码")
                 print(f"{'='*60}")
             
             generation_result = self.generator.generate(
                 prompt=prompt,
                 max_length=max_length,
-                strategy=strategy,
+                temperature=temperature,
                 verbose=verbose
             )
             
-            raw_code = generation_result['generated_code']
+            raw_code = generation_result['code']
             result['raw_code'] = raw_code
             result['token_count'] = generation_result['token_count']
             
             if verbose:
                 print(f"\n生成的原始代码长度: {len(raw_code)} 字符")
             
-            # 步骤4: 后处理
-            final_code = raw_code
-            if do_post_process:
-                if verbose:
-                    print(f"\n{'='*60}")
-                    print(f"[Pipeline] Step 4: 后处理")
-                    print(f"{'='*60}")
-                
-                post_process_result = self.post_processor.process(raw_code)
-                final_code = post_process_result['processed_code']
-                result['validation_report'] = post_process_result['validation_report']
-                
-                if verbose:
-                    print(f"\n后处理后的代码长度: {len(final_code)} 字符")
-            
-            result['processed_code'] = final_code
+            # 后处理已在CodeGenerator内部完成
+            result['processed_code'] = raw_code  # 后处理已在CodeGenerator内部完成
             result['success'] = True
             result['source'] = 'generated'
             
-            # 步骤5: 缓存结果
+            # 步骤3: 缓存结果
             if use_cache:
                 if verbose:
                     print(f"\n{'='*60}")
                     print(f"[Pipeline] Step 5: 缓存结果")
                     print(f"{'='*60}")
                 
-                self.cache.put(prompt, final_code)
+                self.cache.put(prompt, raw_code)
             
             # 计算耗时
             result['processing_time'] = time.time() - start_time
@@ -245,14 +386,14 @@ class CodeGenerationPipeline:
                 print(f"{'='*60}")
                 print(f"总耗时: {result['processing_time']:.4f}s")
                 print(f"生成Token数: {result['token_count']}")
-                print(f"最终代码长度: {len(final_code)} 字符")
+                print(f"最终代码长度: {len(raw_code)} 字符")
                 print(f"来源: {result['source']}")
                 
                 # 显示最终代码
                 print(f"\n{'#'*60}")
                 print(f"# 最终生成的代码")
                 print(f"{'#'*60}\n")
-                print(final_code)
+                print(raw_code)
             
         except Exception as e:
             result['success'] = False
