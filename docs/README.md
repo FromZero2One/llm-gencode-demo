@@ -14,12 +14,12 @@
 
 | 文档 | 适合人群 | 阅读时间 | 内容 |
 |------|---------|---------|------|
+| [🎓 大模型原理教程](learning-resources/llm-fundamentals/README.md) | **所有人(推荐从这里开始)** | 2-3小时 | **零基础完整教程,包含15个章节** |
 | [🚀 快速入门](TUTORIAL.md#1-5分钟快速开始) | 所有人 | 5分钟 | 快速运行第一个示例 |
-| [📖 详细教程](TUTORIAL.md) | 学生/初学者 | 20-30分钟 | Transformer原理详解+实战练习 |
 | [📚 参考手册](REFERENCE.md) | 开发者/研究者 | 按需查阅 | 高级配置、API文档、扩展开发 |
 | [📐 数学基础](learning-resources/math/README.md) | 深入学习 | 按需查阅 | 线性代数、微积分、概率论、优化理论 |
 
-> **建议**: 先阅读 [快速入门](TUTORIAL.md#1-5分钟快速开始)，然后根据需要选择其他文档。
+> **强烈建议**: 从[大模型原理教程](learning-resources/llm-fundamentals/README.md)开始,这是为零基础学习者设计的完整学习路径!
 
 ---
 
@@ -83,6 +83,12 @@ llm-gencode-demo/
 │   ├── TUTORIAL.md              # 详细教程
 │   ├── REFERENCE.md             # 参考手册
 │   ├── learning-resources/      # 学习资源
+│   │   ├── llm-fundamentals/    # 🆕 大模型原理完整教程
+│   │   │   ├── README.md        # 教程入口
+│   │   │   ├── BEGINNER_TUTORIAL.md           # Part 1: 基础概念
+│   │   │   ├── BEGINNER_TUTORIAL_PART2.md     # Part 2: 架构与生成
+│   │   │   ├── BEGINNER_TUTORIAL_PART3.md     # Part 3: 优化与实践
+│   │   │   └── TUTORIAL_SUMMARY.md            # 教程总结
 │   │   └── math/                # 数学基础（5个专题）
 │   └── TRANSFORMER_MATH_FOUNDATION.md  # 完整数学参考
 │
@@ -162,9 +168,9 @@ pipeline = CodeGenerationPipeline(preset='small')
 
 **新手入门**
 
-1. **第一步**: 阅读 [TUTORIAL.md](TUTORIAL.md#1-5分钟快速开始) (5分钟)
+1. **第一步**: 阅读 [大模型原理教程](learning-resources/llm-fundamentals/README.md) (2-3小时)
 2. **第二步**: 运行 `python scripts/main.py` 体验功能
-3. **第三步**: 完成 [TUTORIAL.md](TUTORIAL.md#4-实战练习) 中的练习
+3. **第三步**: 完成教程中的练习题
 
 ### 进阶学习
 

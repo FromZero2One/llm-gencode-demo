@@ -515,7 +515,7 @@ if __name__ == '__main__':
             num_encoder_layers=2,
             num_decoder_layers=2,
             cache_size=10,
-            device='gpu'
+            device='cpu'
         )
         
         # 测试1: 基本生成
