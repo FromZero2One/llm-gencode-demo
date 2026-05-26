@@ -810,6 +810,232 @@ Token "User":
   V_User = [...]
 ```
 
+### 5.3.1 Q、K、V是如何生成的？（重要！）
+
+**核心答案：通过线性变换(Linear Projection)从token的embedding生成！**
+
+🔧 **实践演示**: 运行 [demo_qkv_generation.py](demo_qkv_generation.py) 脚本,亲眼看到Q、K、V的完整生成过程!
+
+#### 生成流程
+
+```
+Token Embedding → 三个线性层 → Q, K, V
+```
+
+**详细步骤**：
+
+```python
+# Step 1: Token获得Embedding
+token_ids = [15, 23, 89]  # ["public", "class", "User"]
+embeddings = embedding_layer(token_ids)
+# embeddings.shape: [3, 128]
+
+# Step 2: 定义三个线性层（可学习的权重矩阵）
+W_q = nn.Linear(d_model=128, d_model=128)  # Query投影
+W_k = nn.Linear(d_model=128, d_model=128)  # Key投影
+W_v = nn.Linear(d_model=128, d_model=128)  # Value投影
+
+# Step 3: 对每个token的embedding进行线性变换
+Q = W_q(embeddings)  # Query矩阵 [3, 128]
+K = W_k(embeddings)  # Key矩阵   [3, 128]
+V = W_v(embeddings)  # Value矩阵 [3, 128]
+```
+
+#### 单个token的计算
+
+对于**单个token**（如"public"），它的Q、K、V是这样计算的：
+
+```python
+# "public"的embedding (128维)
+x_public = [0.5, -0.6, 0.2, ..., 0.7]
+
+# 生成Query向量
+Q_public = W_q @ x_public + b_q
+#          [128×128] @ [128] + [128] = [128]
+
+# 生成Key向量  
+K_public = W_k @ x_public + b_k
+#          [128×128] @ [128] + [128] = [128]
+
+# 生成Value向量
+V_public = W_v @ x_public + b_v
+#          [128×128] @ [128] + [128] = [128]
+```
+
+**数学公式**：
+
+```
+Q_i = x_i · W_q + b_q
+K_i = x_i · W_k + b_k  
+V_i = x_i · W_v + b_v
+
+其中：
+- x_i: 第i个token的embedding
+- W_q, W_k, W_v: 可学习的全连接权重矩阵 [d_model × d_model]
+- b_q, b_k, b_v: 偏置项 [d_model]
+```
+
+#### 为什么需要三个不同的向量？
+
+✅ **灵活性**: Q关注"我要找什么",K关注"我是什么",V关注"我有什么"  
+✅ **表达能力**: 三个独立空间可以学习更复杂的关系  
+✅ **对称性**: Q-K的点积天然衡量匹配程度
+
+🔧 **动手实践**：
+```bash
+# 运行Q、K、V生成演示脚本
+python docs/learning-resources/llm-fundamentals/demo_qkv_generation.py
+
+# 你将看到:
+# 1. 从Token IDs到Embedding的转换
+# 2. 三个线性层(W_q, W_k, W_v)的创建
+# 3. Q、K、V的详细计算过程
+# 4. 单个token的手动计算验证
+# 5. 多头情况下的Q、K、V分割
+```
+
+### 5.3.1 Q、K、V是如何生成的？（重要！）
+
+**核心答案：通过线性变换(Linear Projection)从token的embedding生成！**
+
+🔧 **实践演示**: 运行 [demo_qkv_generation.py](demo_qkv_generation.py) 脚本,亲眼看到Q、K、V的完整生成过程!
+
+#### 生成流程
+
+```
+Token Embedding → 三个线性层 → Q, K, V
+```
+
+**详细步骤**：
+
+```python
+# Step 1: Token获得Embedding
+token_ids = [15, 23, 89]  # ["public", "class", "User"]
+embeddings = embedding_layer(token_ids)
+# embeddings.shape: [3, 128]
+
+# Step 2: 定义三个线性层（可学习的权重矩阵）
+W_q = nn.Linear(d_model=128, d_model=128)  # Query投影
+W_k = nn.Linear(d_model=128, d_model=128)  # Key投影
+W_v = nn.Linear(d_model=128, d_model=128)  # Value投影
+
+# Step 3: 对每个token的embedding进行线性变换
+Q = W_q(embeddings)  # Query矩阵 [3, 128]
+K = W_k(embeddings)  # Key矩阵   [3, 128]
+V = W_v(embeddings)  # Value矩阵 [3, 128]
+```
+
+#### 单个token的计算
+
+对于**单个token**（如"public"），它的Q、K、V是这样计算的：
+
+```python
+# "public"的embedding (128维)
+x_public = [0.5, -0.6, 0.2, ..., 0.7]
+
+# 生成Query向量
+Q_public = W_q @ x_public + b_q
+#          [128×128] @ [128] + [128] = [128]
+
+# 生成Key向量  
+K_public = W_k @ x_public + b_k
+#          [128×128] @ [128] + [128] = [128]
+
+# 生成Value向量
+V_public = W_v @ x_public + b_v
+#          [128×128] @ [128] + [128] = [128]
+```
+
+**数学公式**：
+
+```
+Q_i = x_i · W_q + b_q
+K_i = x_i · W_k + b_k  
+V_i = x_i · W_v + b_v
+
+其中：
+- x_i: 第i个token的embedding
+- W_q, W_k, W_v: 可学习的全连接权重矩阵 [d_model × d_model]
+- b_q, b_k, b_v: 偏置项 [d_model]
+```
+
+#### 可视化生成过程
+
+```
+┌─────────────────────────────────────────────────────┐
+│  Input Tokens                                        │
+│  ["public", "class", "User"]                        │
+└──────────────────┬──────────────────────────────────┘
+                   │
+                   ▼
+┌─────────────────────────────────────────────────────┐
+│  Step 1: Embedding Lookup                            │
+│                                                       │
+│  x_public = [0.5, -0.6, 0.2, ..., 0.7]              │
+│  x_class  = [-0.1, 0.8, -0.3, ..., 0.2]             │
+│  x_User   = [0.2, 0.4, 0.7, ..., 0.6]               │
+│                                                       │
+│  Shape: [3, 128]                                     │
+└──────────────────┬──────────────────────────────────┘
+                   │
+        ┌──────────┴──────────┬──────────┐
+        ▼                     ▼          ▼
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│  Linear W_q  │    │  Linear W_k  │    │  Linear W_v  │
+│  (Query)     │    │  (Key)       │    │  (Value)     │
+│              │    │              │    │              │
+│  Q = X@W_q   │    │  K = X@W_k   │    │  V = X@W_v   │
+└──────┬───────┘    └──────┬───────┘    └──────┬───────┘
+       │                   │                   │
+       ▼                   ▼                   ▼
+┌──────────────┐    ┌──────────────┐    ┌──────────────┐
+│  Q Matrix    │    │  K Matrix    │    │  V Matrix    │
+│              │    │              │    │              │
+│  Q_public    │    │  K_public    │    │  V_public    │
+│  Q_class     │    │  K_class     │    │  V_class     │
+│  Q_User      │    │  K_User      │    │  V_User      │
+│              │    │              │    │              │
+│  Shape:[3,128]│   │  Shape:[3,128]│   │  Shape:[3,128]│
+└──────────────┘    └──────────────┘    └──────────────┘
+```
+
+#### 为什么需要三个不同的向量？
+
+**类比数据库查询**：
+
+```
+Query (Q): 你的搜索请求 - "我想找什么？"
+Key (K):   数据库索引   - "我有什么特征？"
+Value (V): 实际数据     - "我的内容是什么？"
+```
+
+**为什么要分开？**
+
+✅ **灵活性**: Q关注"我要找什么",K关注"我是什么",V关注"我有什么"  
+✅ **表达能力**: 三个独立空间可以学习更复杂的关系  
+✅ **对称性**: Q-K的点积天然衡量匹配程度
+
+**在Attention中的作用**：
+
+```
+1. Q和K做点积 → 计算相似度分数
+2. Softmax归一化 → 得到注意力权重
+3. 用权重加权V → 获取相关信息
+```
+
+🔧 **动手实践**：
+```bash
+# 运行Q、K、V生成演示脚本
+python docs/learning-resources/llm-fundamentals/demo_qkv_generation.py
+
+# 你将看到:
+# 1. 从Token IDs到Embedding的转换
+# 2. 三个线性层(W_q, W_k, W_v)的创建
+# 3. Q、K、V的详细计算过程
+# 4. 单个token的手动计算验证
+# 5. 多头情况下的Q、K、V分割
+```
+
 ### 5.4 Attention的计算步骤
 
 **公式**（来自[attention.py](file:///E:/Project/llm-codegen-demo/scripts/core/attention.py#L159-L160)）：
