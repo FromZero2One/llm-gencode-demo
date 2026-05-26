@@ -234,7 +234,7 @@ class SimpleTokenizer:
         return token_ids, attention_mask
 ```
 
-### 2.5 Attention Mask的作用
+### 2.5 Attention Mask（注意力标记）的作用
 
 **核心问题**：如何告诉模型哪些位置是有效内容，哪些是padding？
 
@@ -354,7 +354,7 @@ attention_mask = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]
 
 ---
 
-## 3. 第二章：让机器"看见"文字 - Embedding
+## 3. 第二章：让机器"看见"文字 - Embedding（嵌入）
 
 ### 3.1 核心问题：ID只是编号，没有语义
 
@@ -364,7 +364,9 @@ attention_mask = [1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 0]
 
 ### 3.2 什么是Embedding？
 
-**Embedding = 将离散符号映射为连续向量**
+**Embedding = 将离散符号映射为连续向量[demo_embedding.py](demo_embedding.py)**
+
+💡 **实践演示**: 运行 [demo_embedding.py](demo_embedding.py) 脚本,亲眼看到Embedding如何将ID转换为向量!
 
 ```
 Token ID → 向量（d_model维）
@@ -514,6 +516,19 @@ King - Man + Woman ≈ Queen
 - `vocab_size`：词汇表大小（如1000、50000）
 - `d_model`：向量维度（如128、768、4096）
 - 总参数量 = `vocab_size × d_model`
+
+🔧 **动手实践**：
+```bash
+# 运行Embedding演示脚本
+python docs/learning-resources/llm-fundamentals/demo_embedding.py
+
+# 你将看到:
+# 1. Embedding矩阵的创建和初始化
+# 2. Token ID到向量的查找过程
+# 3. 训练前后向量的变化
+# 4. 可视化Embedding空间
+# 5. 数学原理解释
+```
 
 ---
 
