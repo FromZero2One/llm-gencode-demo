@@ -361,9 +361,10 @@ class TextDataset(Dataset):
         logger.info(f"预处理 {len(texts)} 条文本...")
         self.examples = []
         for text in texts:
-            tokens = tokenizer.encode(text)
-            if len(tokens) >= 2:  # 至少需要2个token才能形成input-target对
-                self.examples.append(tokens[:max_len])
+            # encode 返回 (token_ids, attention_mask) 元组，只取 token_ids
+            token_ids, _ = tokenizer.encode(text)
+            if len(token_ids) >= 2:  # 至少需要2个token才能形成input-target对
+                self.examples.append(token_ids[:max_len])
         
         logger.info(f"预处理完成，共 {len(self.examples)} 个样本")
     
@@ -505,6 +506,28 @@ class Trainer:
         # 创建保存目录
         os.makedirs(save_dir, exist_ok=True)
     
+    def _forward_for_training(self, inputs: torch.Tensor, targets: torch.Tensor):
+        """
+        根据模型架构执行前向传播（训练/验证共用）
+        
+        - Encoder-Decoder: src=inputs, tgt=targets（teacher forcing）
+        - Decoder-Only:    input_ids=targets（整个序列自回归预测下一个token），
+                           labels 也传 targets，模型内部右移一位对齐并返回 loss
+        
+        Returns:
+            outputs: [batch, seq_len, vocab]
+        """
+        if getattr(self.model, 'architecture', 'encdec') == 'decoder':
+            # Decoder-Only: forward(input_ids, labels) 返回 (logits, loss)
+            outputs, _ = self.model(targets, labels=targets)
+            return outputs
+        else:
+            # Encoder-Decoder：生成因果掩码（1=可见, 0=屏蔽）
+            tgt_seq_len = targets.size(1)
+            tgt_mask = self.model.generate_square_subsequent_mask(tgt_seq_len).to(self.device)
+            outputs, _, _ = self.model(inputs, targets, tgt_mask=tgt_mask)
+            return outputs
+    
     def train_epoch(self, epoch: int) -> float:
         """
         训练一个epoch
@@ -524,17 +547,8 @@ class Trainer:
             inputs = inputs.to(self.device)
             targets = targets.to(self.device)
             
-            # 前向传播
-            # TransformerModel需要src和tgt，对于语言建模任务，我们使用inputs作为src和tgt
-            if hasattr(self.model, 'forward') and 'tgt' in self.model.forward.__code__.co_varnames:
-                # Encoder-Decoder架构：src=inputs, tgt=targets
-                # 生成tgt_mask（因果掩码）
-                tgt_seq_len = targets.size(1)
-                tgt_mask = self.model.generate_square_subsequent_mask(tgt_seq_len).to(self.device)
-                outputs, _, _ = self.model(inputs, targets, tgt_mask=tgt_mask)
-            else:
-                # 纯Decoder架构
-                outputs = self.model(inputs)
+            # 前向传播（按架构自动分发）
+            outputs = self._forward_for_training(inputs, targets)
             
             # 计算损失
             loss = self.loss_fn(outputs, targets)
@@ -588,13 +602,8 @@ class Trainer:
             inputs = inputs.to(self.device)
             targets = targets.to(self.device)
             
-            # 前向传播（与train_epoch相同逻辑）
-            if hasattr(self.model, 'forward') and 'tgt' in self.model.forward.__code__.co_varnames:
-                tgt_seq_len = targets.size(1)
-                tgt_mask = self.model.generate_square_subsequent_mask(tgt_seq_len).to(self.device)
-                outputs, _, _ = self.model(inputs, targets, tgt_mask=tgt_mask)
-            else:
-                outputs = self.model(inputs)
+            # 前向传播（按架构自动分发）
+            outputs = self._forward_for_training(inputs, targets)
             
             loss = self.loss_fn(outputs, targets)
             

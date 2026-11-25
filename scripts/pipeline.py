@@ -484,6 +484,46 @@ class CodeGenerationPipeline:
         
         return samples
     
+    def load_checkpoint(self, filepath: str):
+        """
+        加载训练好的checkpoint权重到模型（训练→推理闭环）
+        
+        加载后即可用 pipeline.generate() 进行推理，
+        观察"训练前随机噪声 vs 训练后有结构"的对比。
+        
+        Args:
+            filepath (str): checkpoint文件路径（.pt），由 Trainer.save_checkpoint 生成
+        
+        Example:
+            >>> pipeline = CodeGenerationPipeline(preset='small')
+            >>> pipeline.load_checkpoint('checkpoints/checkpoint_epoch_9.pt')
+            >>> result = pipeline.generate("public class Hello")  # 训练后的模型生成
+        """
+        import torch as _torch
+        checkpoint = _torch.load(filepath, map_location='cpu')
+        state_dict = checkpoint.get('model_state_dict', checkpoint)
+        self.model.load_state_dict(state_dict)
+        self.model.eval()  # 推理模式：关闭Dropout
+        
+        epoch = checkpoint.get('epoch', '?')
+        loss = checkpoint.get('loss', '?')
+        print(f"[Pipeline] Checkpoint已加载: {filepath} (epoch={epoch}, loss={loss})")
+    
+    def save_model(self, filepath: str):
+        """
+        仅保存模型权重（轻量格式，不包含优化器状态）
+        
+        与 Trainer.save_checkpoint 的区别：
+        - save_checkpoint: 完整训练状态（权重+优化器+调度器），用于断点续训
+        - save_model: 只有模型权重，文件更小，用于推理部署
+        
+        Args:
+            filepath (str): 保存路径（.pt）
+        """
+        import torch as _torch
+        _torch.save({'model_state_dict': self.model.state_dict()}, filepath)
+        print(f"[Pipeline] 模型权重已保存: {filepath}")
+    
     def get_pipeline_stats(self) -> Dict:
         """获取管道统计信息"""
         return {

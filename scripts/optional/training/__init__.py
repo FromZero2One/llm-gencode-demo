@@ -4,9 +4,8 @@
 包含训练器、损失函数和优化器配置
 """
 
-from scripts.training.trainer import Trainer, TrainingConfig
+from scripts.optional.training.trainer import Trainer
 
 __all__ = [
     'Trainer',
-    'TrainingConfig'
 ]
