@@ -6,7 +6,7 @@ import sys
 import time
 from typing import Dict, Optional
 from scripts.core.tokenizer import SimpleTokenizer
-from scripts.core.transformer import TransformerModel
+from scripts.core.transformer import TransformerModel, DecoderOnlyTransformer
 from scripts.generation.code_generator import CodeGenerator
 from scripts.optimization.cache import GenerationCache
 from scripts.utils.logger import logging_context
@@ -169,7 +169,8 @@ class CodeGenerationPipeline:
                  num_decoder_layers: int = None,
                  cache_size: int = None,
                  device: str = 'cpu',
-                 debug_mode: bool = False):
+                 debug_mode: bool = False,
+                 architecture: str = 'encdec'):
         """
         初始化管道
         
@@ -215,9 +216,17 @@ class CodeGenerationPipeline:
         
         self.debug_mode = debug_mode
         
+        # 架构选择：
+        # - 'encdec': Encoder-Decoder（类 T5/BART，原版教学架构）
+        # - 'decoder': Decoder-Only（类 GPT/Qwen3，现代 LLM 范式，权重绑定）
+        if architecture not in ('encdec', 'decoder'):
+            raise ValueError(f"未知架构: '{architecture}', 可选: 'encdec' | 'decoder'")
+        self.architecture = architecture
+        
         print(f"\n{'='*60}")
         print(f"[Pipeline] 初始化代码生成管道")
         print(f"  Preset: {preset}")
+        print(f"  Architecture: {architecture}")
         print(f"  Device: {device}")
         print(f"  Debug mode: {debug_mode}")
         print(f"{'='*60}")
@@ -228,14 +237,25 @@ class CodeGenerationPipeline:
         
         # 2. 创建Transformer模型
         print("\n[Step 2] 创建Transformer模型...")
-        self.model = TransformerModel(
-            vocab_size=config['vocab_size'],
-            d_model=config['d_model'],
-            nhead=config['nhead'],
-            num_encoder_layers=config['num_encoder_layers'],
-            num_decoder_layers=config['num_decoder_layers'],
-            debug_mode=debug_mode
-        )
+        if architecture == 'decoder':
+            # Decoder-Only：层数概念只有一层（num_decoder_layers 即总层数）
+            self.model = DecoderOnlyTransformer(
+                vocab_size=config['vocab_size'],
+                d_model=config['d_model'],
+                nhead=config['nhead'],
+                num_layers=config['num_decoder_layers'],
+                max_seq_length=128,
+                tie_word_embeddings=True
+            )
+        else:
+            self.model = TransformerModel(
+                vocab_size=config['vocab_size'],
+                d_model=config['d_model'],
+                nhead=config['nhead'],
+                num_encoder_layers=config['num_encoder_layers'],
+                num_decoder_layers=config['num_decoder_layers'],
+                debug_mode=debug_mode
+            )
         
         # 3. 创建代码生成器(默认启用后处理)
         print("\n[Step 3] 创建代码生成器...")

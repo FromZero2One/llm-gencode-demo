@@ -560,6 +560,7 @@ class TransformerModel(nn.Module):
             )
         self.position_embedding_type = position_embedding_type
         self.use_rope = position_embedding_type == 'rope'
+        self.architecture = 'encdec'  # 架构标识，供 Pipeline/Generator 区分
         
         # Embedding层：将token ID转换为向量
         self.embedding = nn.Embedding(vocab_size, d_model)
@@ -674,10 +675,11 @@ class TransformerModel(nn.Module):
             - 没有它，模型会在训练时"作弊"看到未来的tokens
             - 掩码在每次生成新token时都需要重新创建（因为序列长度在变化）
         """
-        mask = torch.triu(torch.ones(sz, sz), diagonal=1).bool()
-        # 将True的位置设为0（屏蔽），False的位置设为1
-        mask = mask.float().masked_fill(mask == 1, float('-inf')).masked_fill(mask == 0, float(0.0))
-        return mask
+        mask = torch.tril(torch.ones(sz, sz)).bool()
+        # 因果掩码语义：1=可见(下三角含对角线)，0=屏蔽(上三角未来位置)
+        # 与 padding 掩码一致(1=可见, 0=屏蔽)，供 attention 中
+        # masked_fill(mask == 0, -1e9) 正确屏蔽未来位置
+        return mask.float()
     
     def encode(self, src: torch.Tensor, src_mask: torch.Tensor = None):
         """
@@ -1098,6 +1100,275 @@ class TransformerModel(nn.Module):
             delattr(self, '_cached_memory')
 
 
+class DecoderOnlyBlock(nn.Module):
+    """
+    Decoder-Only 基础块（类 GPT/Qwen3 的最小单元）
+
+    与 TransformerDecoderLayer（Encoder-Decoder 版）的区别：
+    ┌──────────────────────────────┬─────────────────────┬──────────────────────┐
+    │ 组件                          │ Encoder-Decoder 版   │ Decoder-Only 版      │
+    ├──────────────────────────────┼─────────────────────┼──────────────────────┤
+    │ Masked Self-Attention        │ ✅                  │ ✅                   │
+    │ Cross-Attention（看Encoder） │ ✅                  │ ❌（没有Encoder）    │
+    │ FFN                          │ ✅                  │ ✅                   │
+    │ 归一化层数量                  │ 3 个               │ 2 个                │
+    └──────────────────────────────┴─────────────────────┴──────────────────────┘
+
+    现代大模型（GPT/Qwen3/LLaMA）只保留 Masked Self-Attention + FFN，
+    因为语言建模本质上就是"根据前文预测下一个词"，不需要 Seq2Seq 的编码过程。
+    """
+
+    def __init__(self, d_model: int = 128, nhead: int = 8,
+                 dim_feedforward: int = 512, dropout: float = 0.1,
+                 norm_type: str = 'layernorm', use_rope: bool = False,
+                 max_seq_length: int = 512):
+        super().__init__()
+        self.self_attn = MultiHeadAttention(d_model, nhead, dropout,
+                                            use_rope=use_rope,
+                                            max_seq_length=max_seq_length)
+        self.ffn = nn.Sequential(
+            nn.Linear(d_model, dim_feedforward),
+            nn.ReLU(),
+            nn.Dropout(dropout),
+            nn.Linear(dim_feedforward, d_model),
+            nn.Dropout(dropout)
+        )
+        if norm_type == 'rmsnorm':
+            self.norm1 = RMSNorm(d_model)
+            self.norm2 = RMSNorm(d_model)
+        elif norm_type == 'layernorm':
+            self.norm1 = nn.LayerNorm(d_model)
+            self.norm2 = nn.LayerNorm(d_model)
+        else:
+            raise ValueError(f"未知归一化类型: '{norm_type}', 可选: 'layernorm' | 'rmsnorm'")
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor, tgt_mask: torch.Tensor = None,
+                past_key_value=None):
+        """
+        Args:
+            x: [batch, seq_len, d_model]
+            tgt_mask: 因果掩码
+            past_key_value: KV Cache 的历史 (K, V)，None 表示不用缓存
+
+        Returns:
+            (output, present_kv): 输出与本层新 K/V
+        """
+        # 1. Masked Self-Attention + 残差 + 归一化
+        attn_out, _, present_kv = self.self_attn(x, x, x, tgt_mask,
+                                                 past_key_value=past_key_value)
+        x = self.norm1(x + self.dropout(attn_out))
+        # 2. FFN + 残差 + 归一化
+        x = self.norm2(x + self.ffn(x))
+        return x, present_kv
+
+
+class DecoderOnlyTransformer(nn.Module):
+    """
+    Decoder-Only Transformer（现代 LLM 范式，类 GPT/Qwen3/minimind）
+
+    ════════════════════════════════════════════════════════════
+    📚 为什么现代 LLM 放弃了 Encoder？
+    ════════════════════════════════════════════════════════════
+
+    Encoder-Decoder（T5/BART，本项目原版）：
+        输入 "翻译这段代码: xxx" → Encoder 理解 → Decoder 逐词生成
+        适合：输入和输出是"两种表示"的任务（翻译、摘要）
+
+    Decoder-Only（GPT/Qwen3，本项目新版）：
+        输入和输出拼接成一条序列: "prompt + 已生成部分"
+        每个位置用因果掩码只看前文，预测下一个 token
+        适合：开放续写、对话、代码补全 —— prompt 本身也是"前文"的一部分
+
+    优点：
+    - 结构更简单（无 Cross-Attention，参数和计算更少）
+    - 训练目标统一（永远做"下一个 token 预测"）
+    - KV Cache 天然适配（前文 K/V 全部可复用）
+
+    训练目标（语言建模）：
+        L = -Σ_t log P(x_t | x_1...x_{t-1})    （交叉熵，labels 右移一位）
+    ════════════════════════════════════════════════════════════
+
+    与 TransformerModel 的接口兼容性：
+    - generate_step(src, generated, ...) 签名一致（src 被忽略，仅为兼容 CodeGenerator）
+    - 同样支持 KVCacheManager 跨步缓存推理
+
+    Args:
+        vocab_size: 词汇表大小
+        d_model: 模型维度
+        nhead: 注意力头数
+        num_layers: Decoder 层数（Decoder-Only 通常只有一个"层数"概念）
+        tie_word_embeddings: 是否绑定 embedding 与 lm_head 权重（minimind/Qwen3 默认开，
+                            vocab_size 较大时可省 ~1/3 参数）
+    """
+
+    def __init__(self, vocab_size: int = 1000, d_model: int = 128, nhead: int = 8,
+                 num_layers: int = 2, dim_feedforward: int = 512,
+                 dropout: float = 0.1, max_seq_length: int = 128,
+                 norm_type: str = 'layernorm',
+                 position_embedding_type: str = 'sinusoidal',
+                 tie_word_embeddings: bool = True,
+                 debug_mode: bool = False):
+        super().__init__()
+        self.d_model = d_model
+        self.vocab_size = vocab_size
+        self.max_seq_length = max_seq_length
+        self.nhead = nhead
+        self.d_k = d_model // nhead
+        self.num_layers = num_layers
+        self.use_rope = position_embedding_type == 'rope'
+        self.architecture = 'decoder'  # 架构标识，供 Pipeline/Generator 区分
+
+        self.embedding = nn.Embedding(vocab_size, d_model)
+        self.pos_encoder = PositionalEncoding(d_model, dropout, max_seq_length)
+        self.dropout = nn.Dropout(dropout)
+
+        self.layers = nn.ModuleList([
+            DecoderOnlyBlock(d_model, nhead, dim_feedforward, dropout,
+                             norm_type=norm_type, use_rope=self.use_rope,
+                             max_seq_length=max_seq_length)
+            for _ in range(num_layers)
+        ])
+
+        self.norm_final = RMSNorm(d_model) if norm_type == 'rmsnorm' else nn.LayerNorm(d_model)
+        self.lm_head = nn.Linear(d_model, vocab_size, bias=False)
+
+        # 权重绑定（Weight Tying）：
+        # embedding 矩阵 [vocab, d_model] 与 lm_head 矩阵 [vocab, d_model] 形状相同，
+        # 共享后输入输出用"同一套词表示"，既省参数又常提升小模型效果
+        if tie_word_embeddings:
+            self.lm_head.weight = self.embedding.weight
+
+        self._init_weights()
+
+        print(f"\n{'='*60}")
+        print(f"[DecoderOnlyTransformer] 初始化")
+        print(f"{'='*60}")
+        print(f"  - 词汇表大小: {vocab_size}")
+        print(f"  - 模型维度: {d_model}")
+        print(f"  - 注意力头数: {nhead}")
+        print(f"  - 层数: {num_layers}")
+        print(f"  - 归一化类型: {norm_type}")
+        print(f"  - 位置编码: {position_embedding_type}")
+        print(f"  - 权重绑定: {tie_word_embeddings}")
+        print(f"  - 参数量: {sum(p.numel() for p in self.parameters()):,}")
+
+    def _init_weights(self):
+        for p in self.parameters():
+            if p.dim() > 1:
+                nn.init.xavier_uniform_(p)
+
+    def generate_square_subsequent_mask(self, sz: int) -> torch.Tensor:
+        """因果掩码（与 TransformerModel 相同的实现）：1=可见(下三角)，0=屏蔽(未来)"""
+        mask = torch.tril(torch.ones(sz, sz)).bool()
+        return mask.float()
+
+    def forward(self, input_ids: torch.Tensor, labels: torch.Tensor = None):
+        """
+        训练模式前向传播：下一个 token 预测
+
+        Args:
+            input_ids: [batch, seq_len] 输入 token IDs
+            labels: [batch, seq_len] 目标（可选）。
+                    约定与 HF 一致：labels 就是 input_ids 本身，
+                    内部 logits 右移一位对齐（位置 t 的 logits 预测 x_{t+1}）
+
+        Returns:
+            labels 为 None: logits [batch, seq_len, vocab_size]
+            labels 给定: (logits, loss)  loss = 交叉熵
+        """
+        seq_len = input_ids.size(1)
+        tgt_mask = self.generate_square_subsequent_mask(seq_len).to(input_ids.device)
+
+        h = self.embedding(input_ids) * math.sqrt(self.d_model)
+        if not self.use_rope:
+            h = self.pos_encoder(h)
+        else:
+            h = self.dropout(h)
+
+        for layer in self.layers:
+            h, _ = layer(h, tgt_mask)
+
+        h = self.norm_final(h)
+        logits = self.lm_head(h)
+
+        if labels is None:
+            return logits, None
+
+        # 语言建模损失：logits[:, t] 预测 labels[:, t+1]，因此错开一位对齐
+        shift_logits = logits[:, :-1, :].contiguous()
+        shift_labels = labels[:, 1:].contiguous()
+        loss = nn.functional.cross_entropy(
+            shift_logits.view(-1, self.vocab_size),
+            shift_labels.view(-1),
+            ignore_index=-100
+        )
+        return logits, loss
+
+    def generate_step(self, src: torch.Tensor, generated: torch.Tensor,
+                      src_mask: torch.Tensor = None,
+                      kv_cache_manager=None, use_cache: bool = True):
+        """
+        单步生成（接口与 TransformerModel.generate_step 兼容）
+
+        Args:
+            src: 【被忽略】Decoder-Only 没有 Encoder，prompt 直接拼在 generated 里。
+                 保留参数只为兼容 CodeGenerator 的调用方式。
+            generated: [batch, seq_len] 已生成序列（含 BOS + prompt 续写部分）
+            kv_cache_manager: KV 缓存管理器
+            use_cache: 是否使用 KV Cache
+
+        Returns:
+            (logits [batch, vocab_size], kv_cache_manager)
+        """
+        if not use_cache:
+            # 无缓存基准：整段序列重算
+            logits, _ = self.forward(generated)
+            return logits[:, -1, :], None
+
+        if kv_cache_manager is None:
+            from scripts.optimization.kv_cache import KVCacheManager
+            kv_cache_manager = KVCacheManager(
+                num_layers=self.num_layers,
+                batch_size=generated.size(0),
+                num_heads=self.nhead,
+                max_seq_len=self.max_seq_length,
+                head_dim=self.d_k,
+                device=generated.device
+            )
+            kv_cache_manager.initialize()
+
+        last_token = generated[:, -1:]
+        position = kv_cache_manager.get_current_length()
+
+        h = self.embedding(last_token) * math.sqrt(self.d_model)
+        if self.use_rope:
+            h = self.dropout(h)
+        else:
+            # Sinusoidal 模式：单 token 必须手动取真实位置 t 的 PE(t)
+            pe = self.pos_encoder.pe[:, position:position + 1, :]
+            h = h + pe.to(h.dtype)
+
+        # 先快照历史 K/V，再逐层计算+更新（与 TransformerModel 相同的原因：
+        # current_length 各层共享，避免边读边写出错）
+        past_kvs = [kv_cache_manager.get_layer(i) for i in range(self.num_layers)]
+
+        for i, layer in enumerate(self.layers):
+            h, present_kv = layer(h, tgt_mask=None, past_key_value=past_kvs[i])
+            kv_cache_manager.update_layer(
+                i, present_kv[0][:, :, -1:, :], present_kv[1][:, :, -1:, :],
+                position=position
+            )
+
+        h = self.norm_final(h)
+        logits = self.lm_head(h[:, -1, :])
+        return logits, kv_cache_manager
+
+    def clear_cache(self):
+        """清除 Encoder 缓存（Decoder-Only 无 memory，保留接口兼容 CodeGenerator）"""
+        pass
+
+
 # 测试代码
 if __name__ == '__main__':
     # 使用日志上下文管理器
@@ -1303,3 +1574,56 @@ if __name__ == '__main__':
             gen = torch.cat([gen, torch.argmax(logits_rope, dim=-1, keepdim=True)], dim=1)
         print(f"  RoPE 模型 KV Cache 推理 5 步成功, 缓存长度: {kv_rope.get_current_length()}")
         print(f"  [OK] RoPE 模型测试通过")
+        
+        # ==================== Decoder-Only 架构测试 ====================
+        print("\n" + "="*60)
+        print("Decoder-Only 架构测试 (现代 LLM 范式)")
+        print("="*60)
+        
+        # 训练模式：下一个 token 预测
+        model_do = DecoderOnlyTransformer(vocab_size=1000, d_model=128, nhead=8,
+                                          num_layers=2, tie_word_embeddings=True)
+        input_ids = torch.randint(0, 1000, (2, 15))
+        logits_do, loss_do = model_do(input_ids, labels=input_ids)
+        print(f"  logits shape: {tuple(logits_do.shape)}")
+        print(f"  语言建模 loss: {loss_do.item():.4f} (随机初始化应≈ln(1000)={math.log(1000):.4f})")
+        
+        # 权重绑定验证
+        assert model_do.lm_head.weight.data_ptr() == model_do.embedding.weight.data_ptr()
+        tied_params = sum(p.numel() for p in model_do.parameters())
+        model_untied = DecoderOnlyTransformer(vocab_size=1000, d_model=128, nhead=8,
+                                              num_layers=2, tie_word_embeddings=False)
+        untied_params = sum(p.numel() for p in model_untied.parameters())
+        print(f"  权重绑定参数量: {tied_params:,}, 不绑定: {untied_params:,} "
+              f"(省 {untied_params - tied_params:,} 个)")
+        
+        # KV Cache 推理
+        model_do.clear_cache()
+        kv_do = KVCacheManager(num_layers=2, batch_size=1, num_heads=8,
+                               max_seq_len=64, head_dim=16, device=torch.device('cpu'))
+        kv_do.initialize()
+        gen_do = torch.tensor([[2]])  # BOS
+        for _ in range(5):
+            logits_do, kv_do = model_do.generate_step(None, gen_do, kv_cache_manager=kv_do)
+            gen_do = torch.cat([gen_do, torch.argmax(logits_do, dim=-1, keepdim=True)], dim=1)
+        print(f"  KV Cache 推理 5 步成功, 缓存长度: {kv_do.get_current_length()}")
+        
+        # 单步 vs 全序列一致性验证（KV Cache 正确性）
+        model_do.eval()  # 关闭Dropout，保证两条路径数值可比
+        model_do.clear_cache()
+        seq = torch.tensor([[2, 10, 20, 30, 40]])
+        logits_full, _ = model_do(seq[:, :-1])
+        logits_last_full = logits_full[:, -1, :]
+        
+        model_do.clear_cache()
+        kv_check = KVCacheManager(num_layers=2, batch_size=1, num_heads=8,
+                                  max_seq_len=64, head_dim=16, device=torch.device('cpu'))
+        kv_check.initialize()
+        logits_step = None
+        for t in range(seq.size(1) - 1):
+            logits_step, kv_check = model_do.generate_step(
+                None, seq[:, :t + 1], kv_cache_manager=kv_check)
+        max_diff = (logits_step - logits_last_full).abs().max().item()
+        print(f"  KV Cache 单步 vs 全序列 最大误差: {max_diff:.2e} (应≈0)")
+        assert max_diff < 1e-3, "KV Cache 推理与全序列计算应数值一致"
+        print(f"  [OK] Decoder-Only 架构测试通过")

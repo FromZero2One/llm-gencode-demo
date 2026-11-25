@@ -212,8 +212,14 @@ class CodeGenerator:
         prompt_tensor = torch.tensor([prompt_tokens]).to(self.device)
         prompt_mask_tensor = torch.tensor([prompt_mask]).unsqueeze(1).unsqueeze(2).to(self.device)
         
+        # 架构感知：
+        # - Encoder-Decoder: prompt 喂给 Encoder（src 参数），生成序列从 BOS 起步
+        # - Decoder-Only:    没有 Encoder，prompt 直接拼进生成序列（自回归续写范式）
+        is_decoder_only = getattr(self.model, 'architecture', 'encdec') == 'decoder'
+        
         if verbose:
             print(f"\n[CodeGenerator] Prompt tokenized: {len(prompt_tokens)} tokens")
+            print(f"[CodeGenerator] 架构: {'Decoder-Only' if is_decoder_only else 'Encoder-Decoder'}")
         
         # 2. 清除之前的缓存
         self.model.clear_cache()
@@ -222,7 +228,11 @@ class CodeGenerator:
         generated_tokens = []
         # 从BOS token开始
         bos_tensor = torch.tensor([[self.tokenizer.vocab[self.tokenizer.BOS_TOKEN]]]).to(self.device)
-        current_sequence = bos_tensor
+        if is_decoder_only:
+            # Decoder-Only: 初始序列 = [BOS] + prompt tokens，模型续写后半部分
+            current_sequence = torch.cat([bos_tensor, prompt_tensor], dim=1)
+        else:
+            current_sequence = bos_tensor
         
         generation_details = []
         
