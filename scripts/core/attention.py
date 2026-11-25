@@ -76,7 +76,8 @@ class MultiHeadAttention(nn.Module):
     
     def __init__(self, d_model: int = 128, nhead: int = 8, dropout: float = 0.1,
                  debug_mode: bool = False, use_rope: bool = False,
-                 rope_theta: float = 10000.0, max_seq_length: int = 512):
+                 rope_theta: float = 10000.0, max_seq_length: int = 512,
+                 n_kv_heads: int = None, use_sdpa: bool = True):
         """
         初始化多头注意力机制
         
@@ -116,8 +117,22 @@ class MultiHeadAttention(nn.Module):
         
         self.d_model = d_model
         self.nhead = nhead
+        # GQA (Grouped-Query Attention)：
+        #   n_kv_heads == nhead  → 标准 MHA（每个 Q 头有独立的 K/V 头）
+        #   n_kv_heads <  nhead  → 每 (nhead/n_kv_heads) 个 Q 头共享一组 K/V
+        # 收益：K/V 投影参数和 KV Cache 显存按 nhead/n_kv_heads 比例下降
+        #       （Qwen3/Llama3 标配，如 8 个 Q 头共享 4 个 KV 头 → KV 缓存省一半）
+        # 教学简化：注意力计算前把 K/V 头展开到 nhead（生产实现是缓存压缩 K/V +
+        #           attention 内部展开，缓存可真正省显存；此处保持与现有
+        #           KVCacheManager 形状兼容）
+        self.n_kv_heads = n_kv_heads if n_kv_heads is not None else nhead
+        assert nhead % self.n_kv_heads == 0, "nhead 必须被 n_kv_heads 整除（GQA 分组要求）"
+        self.kv_group = nhead // self.n_kv_heads  # 每组共享 K/V 的 Q 头数
         self.d_k = d_model // nhead  # 每个头的维度
         self.debug_mode = debug_mode
+        # SDPA 快速路径：torch F.scaled_dot_product_attention（融合内核，更快更省显存）
+        # 关闭可回退到手写教学路径（逐行理解用）
+        self.use_sdpa = use_sdpa and hasattr(torch.nn.functional, 'scaled_dot_product_attention')
         
         # RoPE 旋转位置编码（可选）
         # 启用后：Q/K 在进入注意力计算前被旋转，位置信息内积化为相对位置
@@ -135,9 +150,10 @@ class MultiHeadAttention(nn.Module):
             logger.info(f"  - 每头维度 (d_k): {self.d_k}")
         
         # Q, K, V的线性变换
-        self.W_q = nn.Linear(d_model, d_model)
-        self.W_k = nn.Linear(d_model, d_model)
-        self.W_v = nn.Linear(d_model, d_model)
+        # GQA: K/V 投影只输出 n_kv_heads 头（参数量 = MHA 的 n_kv_heads/nhead）
+        self.W_q = nn.Linear(d_model, nhead * self.d_k)
+        self.W_k = nn.Linear(d_model, self.n_kv_heads * self.d_k)
+        self.W_v = nn.Linear(d_model, self.n_kv_heads * self.d_k)
         
         # 输出线性变换
         self.W_o = nn.Linear(d_model, d_model)
@@ -268,8 +284,8 @@ class MultiHeadAttention(nn.Module):
         # [batch, 8, seq_len, 16]  (最终Q/K/V的形状)
         #
         Q = self.W_q(query).view(batch_size, seq_len_q, self.nhead, self.d_k).transpose(1, 2)
-        K = self.W_k(key).view(batch_size, seq_len_k, self.nhead, self.d_k).transpose(1, 2)
-        V = self.W_v(value).view(batch_size, seq_len_k, self.nhead, self.d_k).transpose(1, 2)
+        K = self.W_k(key).view(batch_size, seq_len_k, self.n_kv_heads, self.d_k).transpose(1, 2)
+        V = self.W_v(value).view(batch_size, seq_len_k, self.n_kv_heads, self.d_k).transpose(1, 2)
         
         # RoPE：对 Q/K 施加旋转位置编码（必须在拼接历史缓存之前，
         # 这样缓存中存的就是已旋转的 K，绝对位置信息随之保留）
@@ -284,10 +300,21 @@ class MultiHeadAttention(nn.Module):
             Q, K = apply_rotary_pos_emb(Q, K, cos, sin, position_offset=position_offset)
         
         # 新增：拼接历史 K/V（KV Cache 核心逻辑）
+        # GQA 下缓存/拼接都在压缩的 n_kv_heads 头上进行，之后才展开
         if past_key_value is not None:
             past_k, past_v = past_key_value
-            K = torch.cat([past_k, K], dim=2)  # [batch, nhead, past_len + seq_len_q, d_k]
+            K = torch.cat([past_k, K], dim=2)  # [batch, n_kv_heads, past_len + seq_len_q, d_k]
             V = torch.cat([past_v, V], dim=2)
+        
+        # GQA 头展开：K/V 复制 kv_group 份，让每个 Q 头都有对应的 K/V
+        # （n_kv_heads == nhead 时是恒等操作，等价标准 MHA）
+        # 注意：present_kv 保存展开前的压缩 K/V（GQA 缓存省显存的关键）
+        if self.kv_group > 1:
+            present_kv_compact = (K, V)
+            K = K.repeat_interleave(self.kv_group, dim=1)
+            V = V.repeat_interleave(self.kv_group, dim=1)
+        else:
+            present_kv_compact = (K, V)
         
         if self.debug_mode:
             logger.debug(f"  - Q/K/V shape after split: {Q.shape}")
@@ -322,72 +349,84 @@ class MultiHeadAttention(nn.Module):
             logger.debug(f"  - Attention scores shape: {scores.shape}")
         
         # ════════════════════════════════════════════════════════
-        # Step 3: 应用mask（如果有）
+        # Step 2.5: SDPA 快速路径（可选）
         # ════════════════════════════════════════════════════════
-        #
-        # 【Mask的作用】
-        # 防止模型关注不应该看到的位置：
-        #   1. Padding Mask: 屏蔽序列中的<pad> token
-        #      - 例如: "public class UserService <pad> <pad>"
-        #      - 不应该关注<pad>，因为它们没有实际意义
-        #
-        #   2. Causal Mask (Decoder): 防止看到未来token
-        #      - 生成第t个token时，只能看到前t-1个token
-        #      - 否则会出现"偷看答案"的问题
-        #
-        # 【实现方式】
-        # mask中值为0的位置会被填充为-1e9（极小值）
-        # softmax(-1e9) ≈ 0，这样这些位置的权重就接近0
-        #
-        if mask is not None:
-            # mask为0的位置填充极小值，使softmax后接近0
-            scores = scores.masked_fill(mask == 0, -1e9)
-            if self.debug_mode:
-                logger.debug(f"  - Applied mask")
+        # F.scaled_dot_product_attention 是 PyTorch 融合内核（FlashAttention 思路），
+        # 一次调用完成 Step 2~5（score→mask→softmax→dropout→加权求和），
+        # 中间矩阵不落显存，长序列下更快更省。minimind 的 flash_attn 开关同款思路。
+        # 教学路径（use_sdpa=False）保留手写实现供逐行理解。
+        if self.use_sdpa:
+            # ⚠️ SDPA 掩码语义：
+            #   - bool 掩码: True=参与计算（正是本项目 1=可见 的语义）
+            #   - float 掩码: 会**加到分数上**（加性掩码）——若直接传 0/1 float
+            #     会给可见位置+1.0，破坏注意力分布！必须转 bool。
+            attn_mask_sdpa = None
+            if mask is not None:
+                attn_mask_sdpa = mask.bool() if mask.dtype != torch.bool else mask
+            context = torch.nn.functional.scaled_dot_product_attention(
+                Q, K, V,
+                attn_mask=attn_mask_sdpa,
+                dropout_p=self.dropout.p if self.training else 0.0,
+            )
+            attention_weights = None  # SDPA 不返回权重（融合内核无中间量）
+            self.attention_weights = None
         
         # ════════════════════════════════════════════════════════
-        # Step 4: Softmax获取注意力权重
+        # Step 3~5: 手写教学路径（use_sdpa=False 时执行）
         # ════════════════════════════════════════════════════════
-        #
-        # 【Softmax的作用】
-        # 将原始分数(scores)转化为概率分布(attention_weights)
-        #   - 所有权重的和为1.0
-        #   - 权重越大表示越重要
-        #
-        # 【Dropout的作用】
-        # 训练时随机丢弃部分注意力权重，防止过拟合
-        #   - 测试时dropout不生效
-        #   - 类似图像数据增强中的随机裁剪
-        #
-        attention_weights = self.softmax(scores)
-        attention_weights = self.dropout(attention_weights)
+        else:
+            #
+            # 【Mask的作用】
+            # 防止模型关注不应该看到的位置：
+            #   1. Padding Mask: 屏蔽序列中的<pad> token
+            #      - 例如: "public class UserService <pad> <pad>"
+            #      - 不应该关注<pad>，因为它们没有实际意义
+            #
+            #   2. Causal Mask (Decoder): 防止看到未来token
+            #      - 生成第t个token时，只能看到前t-1个token
+            #      - 否则会出现"偷看答案"的问题
+            #
+            # 【实现方式】
+            # mask中值为0的位置会被填充为-1e9（极小值）
+            # softmax(-1e9) ≈ 0，这样这些位置的权重就接近0
+            #
+            if mask is not None:
+                # mask为0的位置填充极小值，使softmax后接近0
+                scores = scores.masked_fill(mask == 0, -1e9)
+                if self.debug_mode:
+                    logger.debug(f"  - Applied mask")
+            
+            #
+            # 【Softmax的作用】
+            # 将原始分数(scores)转化为概率分布(attention_weights)
+            #   - 所有权重的和为1.0
+            #   - 权重越大表示越重要
+            #
+            # 【Dropout的作用】
+            # 训练时随机丢弃部分注意力权重，防止过拟合
+            #   - 测试时dropout不生效
+            #   - 类似图像数据增强中的随机裁剪
+            #
+            attention_weights = self.softmax(scores)
+            attention_weights = self.dropout(attention_weights)
+            
+            # 保存注意力权重用于可视化
+            self.attention_weights = attention_weights.detach()
+            
+            #
+            # 【核心思想】
+            # 根据注意力权重，从Value中提取相关信息
+            #   context_i = Σ_j (attention_weights[i,j] * V[j])
+            #
+            # 【直观理解】
+            # 如果token i关注token j的程度是0.3，那么V[j]的信息会以0.3的权重
+            # 加入到context[i]中。这样context[i]就融合了全局的上下文信息。
+            #
+            context = torch.matmul(attention_weights, V)
         
-        # 保存注意力权重用于可视化
-        self.attention_weights = attention_weights.detach()
-        
-        if self.debug_mode:
+        if self.debug_mode and attention_weights is not None:
             logger.debug(f"  - Attention weights shape: {attention_weights.shape}")
             logger.debug(f"  - Attention weights sum (should be 1.0): {attention_weights.sum(dim=-1).mean().item():.4f}")
-        
-        # ════════════════════════════════════════════════════════
-        # Step 5: 加权求和 (Context聚合)
-        # ════════════════════════════════════════════════════════
-        #
-        # 【核心思想】
-        # 根据注意力权重，从Value中提取相关信息
-        #   context_i = Σ_j (attention_weights[i,j] * V[j])
-        #
-        # 【直观理解】
-        # 如果token i关注token j的程度是0.3，那么V[j]的信息会以0.3的权重
-        # 加入到context[i]中。这样context[i]就融合了全局的上下文信息。
-        #
-        # 【形状变化】
-        # attention_weights: [batch, 8, seq_len_q, seq_len_k]
-        # V:                 [batch, 8, seq_len_k, 16]
-        #   ↓ torch.matmul(attention_weights, V)
-        # context:           [batch, 8, seq_len_q, 16]
-        #
-        context = torch.matmul(attention_weights, V)
         
         # ════════════════════════════════════════════════════════
         # Step 6: 合并多头
@@ -426,7 +465,7 @@ class MultiHeadAttention(nn.Module):
         if self.debug_mode:
             logger.debug(f"  - Output shape: {output.shape}")
         
-        present_kv = (K, V)  # 当前层的 K/V，供下一步生成缓存
+        present_kv = present_kv_compact  # 压缩 K/V（GQA 下只有 n_kv_heads 头），供下一步生成缓存
         return output, attention_weights, present_kv
     
     def explain_attention(self, token_names: list, head_idx: int = 0):
@@ -734,7 +773,10 @@ if __name__ == '__main__':
     
     print(f"\n输出形状:")
     print(f"  Output: {output.shape}")
-    print(f"  Attention Weights: {attn_weights.shape}")
+    if attn_weights is not None:
+        print(f"  Attention Weights: {attn_weights.shape}")
+    else:
+        print(f"  Attention Weights: None (SDPA 快速路径)")
     
     # 测试位置编码
     print("\n" + "="*60)

@@ -39,6 +39,7 @@ app = FastAPI(title="LLM CodeGen Demo API", version="1.0.0")
 # 全局 pipeline（启动时初始化）
 _pipeline = None
 _model_name = "llm-codegen-demo"
+_use_chat_template = False  # SFT 模型启用 ChatML 模板（--chat_template 开关）
 
 
 class ChatMessage(BaseModel):
@@ -61,7 +62,7 @@ class ChatRequest(BaseModel):
 
 def init_pipeline(args):
     """初始化 pipeline（支持加载训练好的 checkpoint）"""
-    global _pipeline, _model_name
+    global _pipeline, _model_name, _use_chat_template
     _pipeline = CodeGenerationPipeline(
         preset=args.preset,
         device=args.device,
@@ -70,22 +71,22 @@ def init_pipeline(args):
     if args.checkpoint:
         _pipeline.load_checkpoint(args.checkpoint)
     _model_name = args.model_name
+    _use_chat_template = args.chat_template
 
 
 def messages_to_prompt(messages: list) -> str:
     """
-    把 OpenAI messages 列表拼接为单条 prompt
+    把 OpenAI messages 列表转为模型输入
 
-    本项目没有 chat template，采用最简单的角色前缀拼接：
-    system/user 的内容直接连接，assistant 内容忽略（教学模型不处理多轮历史）
+    SFT 模型（--chat_template）：应用 ChatML 模板 + add_generation_prompt，
+        支持真多轮对话（历史消息全部进入模板）
+    普通模型（默认）：拼接 user/system 内容（旧版行为，兼容未 SFT 的底座）
     """
-    parts = []
-    for msg in messages:
-        role = msg.get("role", "user")
-        content = msg.get("content", "")
-        if role in ("system", "user"):
-            parts.append(content)
-    return "\n".join(parts) if parts else "public class"
+    from scripts.core.chat_template import apply_chat_template, messages_to_prompt_legacy
+    msgs = [m if isinstance(m, dict) else m.model_dump() for m in messages]
+    if _use_chat_template:
+        return apply_chat_template(msgs, add_generation_prompt=True)
+    return messages_to_prompt_legacy(msgs)
 
 
 def make_chunk(chunk_id: str, delta: dict, finish_reason=None) -> str:
@@ -214,6 +215,8 @@ if __name__ == "__main__":
     parser.add_argument('--port', default=8000, type=int, help='监听端口')
     parser.add_argument('--model_name', default='llm-codegen-demo', type=str,
                         help='对外暴露的模型名')
+    parser.add_argument('--chat_template', action='store_true',
+                        help='启用 ChatML 模板（SFT 模型必须开启，支持真多轮对话）')
     args = parser.parse_args()
 
     init_pipeline(args)

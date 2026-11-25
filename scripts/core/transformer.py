@@ -1107,6 +1107,50 @@ class TransformerModel(nn.Module):
             delattr(self, '_cached_memory')
 
 
+class SwiGLU(nn.Module):
+    """
+    SwiGLU 前馈网络 - 现代 LLM 标配（Qwen3/Llama3/minimind 同款）
+
+    ════════════════════════════════════════════════════════════
+    📚 SwiGLU vs 经典 Two-Layer FFN
+    ════════════════════════════════════════════════════════════
+
+    经典 FFN（Transformer 原论文）：
+        FFN(x) = W2 · ReLU(W1 · x)
+        两个矩阵：d → 4d → d
+
+    SwiGLU（GLU 变体，Shazeer 2020）：
+        SwiGLU(x) = W_down · ( Swish(W_gate · x) ⊙ W_up · x )
+        三个矩阵：d → h（gate/up 两支）→ d
+        - Swish(z) = z · sigmoid(z)   （平滑版 ReLU，处处可导、负区不硬归零）
+        - ⊙ 是逐元素相乘：gate 支学习"哪些特征该通过"，up 支提供特征内容
+        - 门控机制让网络对每个特征做"软性筛选"，实践中收敛更快、loss 更低
+
+    维度惯例：h 取 8/3 · d_model，使三矩阵参数量 ≈ 经典 4d 两矩阵
+    （4·d² vs 3·d·(8/3·d) = 8·d²... 精确讲是 2·(8/3)·d² ≈ 5.33d²，
+     工程上取整到 8/3 是 Llama 论文的实践选择）
+    ════════════════════════════════════════════════════════════
+
+    Args:
+        d_model: 模型维度
+        hidden_dim: 中间层维度（惯例 8/3 · d_model）
+        dropout: dropout 比例
+    """
+
+    def __init__(self, d_model: int, hidden_dim: int, dropout: float = 0.1):
+        super().__init__()
+        self.gate_proj = nn.Linear(d_model, hidden_dim, bias=False)  # 门控支
+        self.up_proj = nn.Linear(d_model, hidden_dim, bias=False)    # 内容支
+        self.down_proj = nn.Linear(hidden_dim, d_model, bias=False)  # 降维输出
+        self.dropout = nn.Dropout(dropout)
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # Swish(gate) ⊙ up → down：门控筛选后再降维
+        return self.dropout(self.down_proj(
+            torch.nn.functional.silu(self.gate_proj(x)) * self.up_proj(x)
+        ))
+
+
 class DecoderOnlyBlock(nn.Module):
     """
     Decoder-Only 基础块（类 GPT/Qwen3 的最小单元）
@@ -1128,25 +1172,36 @@ class DecoderOnlyBlock(nn.Module):
     def __init__(self, d_model: int = 128, nhead: int = 8,
                  dim_feedforward: int = 512, dropout: float = 0.1,
                  norm_type: str = 'layernorm', use_rope: bool = False,
-                 max_seq_length: int = 512):
+                 max_seq_length: int = 512, n_kv_heads: int = None,
+                 ffn_type: str = 'relu'):
         """
         Args:
             d_model/nhead/dim_feedforward/dropout: 与 EncoderLayer 相同含义
             norm_type: 'layernorm' | 'rmsnorm'（仅2个归一化层，无交叉注意力）
             use_rope: True 时位置信息由 Attention 内部 RoPE 注入
             max_seq_length: RoPE 预生成表的最大长度
+            n_kv_heads: GQA 的 K/V 头数（None=与 nhead 相同，即标准 MHA）
+            ffn_type: 'relu' | 'swiglu'（现代 LLM 标配激活，见 SwiGLU 类）
         """
         super().__init__()
         self.self_attn = MultiHeadAttention(d_model, nhead, dropout,
                                             use_rope=use_rope,
-                                            max_seq_length=max_seq_length)
-        self.ffn = nn.Sequential(
-            nn.Linear(d_model, dim_feedforward),
-            nn.ReLU(),
-            nn.Dropout(dropout),
-            nn.Linear(dim_feedforward, d_model),
-            nn.Dropout(dropout)
-        )
+                                            max_seq_length=max_seq_length,
+                                            n_kv_heads=n_kv_heads)
+        # FFN：经典 Two-Layer ReLU vs 现代 SwiGLU（Qwen3/Llama3 标配）
+        if ffn_type == 'swiglu':
+            # SwiGLU 惯例：hidden 维度取 8/3 * d_model（保持参数量与 4x ReLU 版相近）
+            self.ffn = SwiGLU(d_model, int(dim_feedforward * 2 / 3), dropout)
+        elif ffn_type == 'relu':
+            self.ffn = nn.Sequential(
+                nn.Linear(d_model, dim_feedforward),
+                nn.ReLU(),
+                nn.Dropout(dropout),
+                nn.Linear(dim_feedforward, d_model),
+                nn.Dropout(dropout)
+            )
+        else:
+            raise ValueError(f"未知FFN类型: '{ffn_type}', 可选: 'relu' | 'swiglu'")
         if norm_type == 'rmsnorm':
             self.norm1 = RMSNorm(d_model)
             self.norm2 = RMSNorm(d_model)
@@ -1222,13 +1277,20 @@ class DecoderOnlyTransformer(nn.Module):
                  norm_type: str = 'layernorm',
                  position_embedding_type: str = 'sinusoidal',
                  tie_word_embeddings: bool = True,
+                 n_kv_heads: int = None, ffn_type: str = 'relu',
                  debug_mode: bool = False):
-        """参数含义见类 docstring（本类只有一个层数概念：num_layers）"""
+        """参数含义见类 docstring（本类只有一个层数概念：num_layers）
+        
+        Args:
+            n_kv_heads: GQA 的 K/V 头数（None=nhead，即 MHA）
+            ffn_type: 'relu' | 'swiglu'
+        """
         super().__init__()
         self.d_model = d_model
         self.vocab_size = vocab_size
         self.max_seq_length = max_seq_length
         self.nhead = nhead
+        self.n_kv_heads = n_kv_heads if n_kv_heads is not None else nhead
         self.d_k = d_model // nhead
         self.num_layers = num_layers
         self.use_rope = position_embedding_type == 'rope'
@@ -1241,7 +1303,8 @@ class DecoderOnlyTransformer(nn.Module):
         self.layers = nn.ModuleList([
             DecoderOnlyBlock(d_model, nhead, dim_feedforward, dropout,
                              norm_type=norm_type, use_rope=self.use_rope,
-                             max_seq_length=max_seq_length)
+                             max_seq_length=max_seq_length,
+                             n_kv_heads=n_kv_heads, ffn_type=ffn_type)
             for _ in range(num_layers)
         ])
 
@@ -1347,7 +1410,7 @@ class DecoderOnlyTransformer(nn.Module):
             kv_cache_manager = KVCacheManager(
                 num_layers=self.num_layers,
                 batch_size=generated.size(0),
-                num_heads=self.nhead,
+                num_heads=self.n_kv_heads,  # GQA: 缓存压缩 K/V（n_kv_heads < nhead）
                 max_seq_len=self.max_seq_length,
                 head_dim=self.d_k,
                 device=generated.device

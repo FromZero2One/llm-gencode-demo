@@ -67,7 +67,9 @@ def test_attention():
         output, weights, _ = attention(query, key, value)
 
         assert output.shape == (batch_size, seq_len, d_model)
-        assert weights.shape[0] == batch_size
+        # SDPA 快速路径不返回权重（融合内核无中间量），手写路径才返回
+        if weights is not None:
+            assert weights.shape[0] == batch_size
 
         # 测试位置编码
         pos_encoder = PositionalEncoding(d_model=d_model)
@@ -78,7 +80,10 @@ def test_attention():
 
         print(f"[OK] Attention测试通过")
         print(f"  Output shape: {output.shape}")
-        print(f"  Attention weights shape: {weights.shape}")
+        if weights is not None:
+            print(f"  Attention weights shape: {weights.shape}")
+        else:
+            print(f"  Attention weights: None (SDPA 快速路径)")
 
         return True
     except Exception as e:

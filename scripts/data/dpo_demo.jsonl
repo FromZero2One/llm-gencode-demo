@@ -1,0 +1,6 @@
+{"prompt": "写一个 Hello World", "chosen": "public class Hello {\n    public static void main(String[] args) {\n        System.out.println(\"Hello\");\n    }\n}", "rejected": "你好你好你好"}
+{"prompt": "怎么创建列表", "chosen": "List<String> items = new ArrayList<>();", "rejected": "嗯这个嗯大概可以吧"}
+{"prompt": "写一个保存方法", "chosen": "public void save(User user) {\n    this.user = user;\n}", "rejected": "好的好的知道了谢谢"}
+{"prompt": "你好", "chosen": "你好！我是编程助手，可以帮你写代码。", "rejected": "你好"}
+{"prompt": "写一个 for 循环", "chosen": "for (int i = 0; i < size; i++) {\n}", "rejected": "循环就是循环的意思"}
+{"prompt": "怎么判断空值", "chosen": "if (value == null) {\n}", "rejected": "空的就是没有的"}

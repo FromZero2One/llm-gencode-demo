@@ -16,10 +16,10 @@
 | P4 | OpenAI 兼容 API（流式 SSE）+ HF 格式模型转换 | ✅ 完成 |
 | P5 | SemanticCache（n-gram 向量 + 余弦相似度）双级缓存 | ✅ 完成 |
 | P6 | BPE 分词器（对标 minimind train_tokenizer） | ✅ 完成 |
-| P7 | 真实数据管线 + 预训练闭环 | ⬜ |
-| P8 | SFT 指令微调 + Chat Template + 真多轮 API | ⬜ |
-| P9 | LoRA 微调（apply / load / merge） | ⬜ |
-| P10 | 架构补强（GQA / SwiGLU / SDPA）+ DPO 对齐训练 | ⬜ |
+| P7 | 真实数据管线 + 预训练闭环 | ✅ 完成（PretrainDataset + train_pretrain，梯度累积） |
+| P8 | SFT 指令微调 + Chat Template + 真多轮 API | ✅ 完成（chat_template + SFTDataset + train_full_sft） |
+| P9 | LoRA 微调（apply / load / merge） | ✅ 完成（lora.py + train_lora.py） |
+| P10 | 架构补强（GQA / SwiGLU / SDPA）+ DPO 对齐训练 | ✅ 完成（attention GQA/SDPA + SwiGLU + train_dpo） |
 | 远期待做 | MoE / GRPO·PPO / Agent / 蒸馏 / Beam Search / Streamlit WebUI | ⬜ 暂不实施 |
 
 ### P6–P10 详细方案（对标 minimind，2026-11 制定）

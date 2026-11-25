@@ -87,13 +87,32 @@ class CrossEntropyLoss(nn.Module):
         
         Returns:
             torch.Tensor: 标量损失值
+        
+        Note:
+            logits 支持 3D (batch, seq_len, vocab) 或 2D (N, vocab) 输入，
+            targets 对应为 (batch, seq_len) 或 (N)
         """
-        batch_size, seq_len, vocab_size = logits.shape
+        # 兼容 2D/3D 输入：统一展平处理
+        if logits.dim() == 2:
+            batch_size, vocab_size = logits.shape
+            seq_len = 1
+        else:
+            batch_size, seq_len, vocab_size = logits.shape
+        
+        # 步骤0: 先过滤 ignore_index 位置（-100 不能进 gather/scatter，会索引越界）
+        # 过滤后再展平，后续步骤只处理有效位置
+        targets_flat = targets.reshape(-1)
+        if self.ignore_index == -100:
+            valid_mask = targets_flat != self.ignore_index
+            if not valid_mask.any():
+                return torch.tensor(0.0, requires_grad=True, device=logits.device)
+            logits_flat = logits.reshape(-1, vocab_size)[valid_mask]
+            targets_flat = targets_flat[valid_mask]
+        else:
+            logits_flat = logits.reshape(-1, vocab_size)
         
         # 步骤1: 展平以便计算
         # 将(batch, seq_len, vocab)展平为(batch*seq_len, vocab)
-        logits_flat = logits.reshape(-1, vocab_size)
-        targets_flat = targets.reshape(-1)
         
         # 步骤2: 应用标签平滑（如果启用）
         if self.label_smoothing > 0:
@@ -117,8 +136,11 @@ class CrossEntropyLoss(nn.Module):
             # gather操作：对于每个样本，取出targets对应位置的log_prob
             loss = -log_probs.gather(1, targets_flat.unsqueeze(1)).squeeze(1)
         
-        # 步骤3: 处理ignore_index
-        if self.ignore_index >= 0:
+        # 步骤3: 处理 ignore_index（-100 已在步骤0过滤，此处只处理非负的忽略标记）
+        if self.ignore_index == -100:
+            # 全部位置有效（已过滤），直接取均值
+            loss = loss.mean()
+        elif self.ignore_index >= 0:
             mask = (targets_flat != self.ignore_index).float()
             loss = loss * mask
             
@@ -276,7 +298,7 @@ class WarmupLinearScheduler:
     """
     
     def __init__(self, optimizer, warmup_steps: int, total_steps: int, 
-                 max_lr: float = 1e-4, min_lr: float = 1e-6):
+                 max_lr: float = None, min_lr: float = 1e-6):
         """
         初始化学习率调度器
         
@@ -286,12 +308,14 @@ class WarmupLinearScheduler:
                                通常为总步数的10%-20%
             total_steps (int): 总训练步数
             max_lr (float): 最大学习率（warmup结束时的学习率）
+                            None 时自动取优化器当前 lr（推荐，保证与优化器一致）
             min_lr (float): 最小学习率（训练结束时的学习率）
         """
         self.optimizer = optimizer
         self.warmup_steps = warmup_steps
         self.total_steps = total_steps
-        self.max_lr = max_lr
+        # 默认沿用优化器初始化时设定的学习率（避免静默覆盖成默认值）
+        self.max_lr = max_lr if max_lr is not None else optimizer.param_groups[0]['lr']
         self.min_lr = min_lr
         self.current_step = 0
     
@@ -309,9 +333,13 @@ class WarmupLinearScheduler:
             lr = self.max_lr * (self.current_step / self.warmup_steps)
         else:
             # 线性衰减阶段
+            # ⚠️ progress 必须 clamp 到 [0,1]：训练步数超过 total_steps 时
+            #    （如 epoch 数改多、梯度累积估算不准），否则 lr 变负数会摧毁训练
             progress = (self.current_step - self.warmup_steps) / \
-                      (self.total_steps - self.warmup_steps)
+                      max(1, self.total_steps - self.warmup_steps)
+            progress = min(1.0, max(0.0, progress))
             lr = self.max_lr * (1 - progress) + self.min_lr * progress
+            lr = max(lr, self.min_lr)  # 兜底：不低于 min_lr
         
         # 更新优化器的学习率
         for param_group in self.optimizer.param_groups:
