@@ -265,7 +265,9 @@ class CodeGenerationPipeline:
                  top_k: int = 50,
                  use_cache: bool = True,
                  do_post_process: bool = True,
-                 verbose: bool = True) -> Dict:
+                 verbose: bool = True,
+                 strategy: str = 'temperature',
+                 top_p: float = 0.9) -> Dict:
         """
         完整的代码生成流程
         
@@ -273,10 +275,12 @@ class CodeGenerationPipeline:
             prompt: 用户提示
             max_length: 最大生成长度
             temperature: 温度参数
-            top_k: Top-K采样参数
+            top_k: Top-K采样参数(strategy='top_k'时生效)
             use_cache: 是否使用缓存
             do_post_process: 是否进行后处理
             verbose: 是否打印详细信息
+            strategy: 采样策略: 'greedy' | 'temperature' | 'top_k' | 'top_p'
+            top_p: Top-P采样参数(strategy='top_p'时生效)
             
         Returns:
             包含生成结果和元数据的字典
@@ -345,7 +349,10 @@ class CodeGenerationPipeline:
                 prompt=prompt,
                 max_length=max_length,
                 temperature=temperature,
-                verbose=verbose
+                verbose=verbose,
+                strategy=strategy,
+                top_k=top_k,
+                top_p=top_p
             )
             
             raw_code = generation_result['code']

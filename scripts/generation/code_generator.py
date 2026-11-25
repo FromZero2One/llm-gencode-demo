@@ -169,7 +169,9 @@ class CodeGenerator:
         print(f"  - Model parameters: {sum(p.numel() for p in model.parameters()):,}")
     
     def generate(self, prompt: str, max_length: int = 100,
-                 temperature: float = 0.7, verbose: bool = True) -> Dict:
+                 temperature: float = 0.7, verbose: bool = True,
+                 strategy: str = 'temperature',
+                 top_k: int = 50, top_p: float = 0.9) -> Dict:
         """
         生成代码的主函数 - 简化接口
         
@@ -178,12 +180,21 @@ class CodeGenerator:
             max_length: 最大生成长度
             temperature: 温度参数(0.5-1.5),控制随机性
             verbose: 是否打印详细信息
+            strategy: 采样策略,可选:
+                      - 'greedy': 贪婪解码,每步选概率最高的token(确定性)
+                      - 'temperature': 温度采样(默认),按概率分布随机采样
+                      - 'top_k': 先保留概率最高的top_k个token,再采样
+                      - 'top_p': 保留概率累积达到top_p的最小token集合(nucleus采样),再采样
+            top_k: strategy='top_k'时生效,保留的候选token数
+            top_p: strategy='top_p'时生效,累积概率阈值(0-1)
             
         Returns:
             dict包含生成的代码和统计信息
             
         Example:
             >>> generator.generate("public class UserService", temperature=0.7)
+            {'code': '...', 'token_count': 50}
+            >>> generator.generate("public class UserService", strategy='top_k', top_k=10)
             {'code': '...', 'token_count': 50}
         """
         if verbose:
@@ -192,6 +203,9 @@ class CodeGenerator:
             print(f"{'='*60}")
             print(f"Prompt: {prompt[:100]}...")
             print(f"Max length: {max_length}, Temperature: {temperature}")
+            print(f"Strategy: {strategy}" + 
+                  (f" (top_k={top_k})" if strategy == 'top_k' else "") +
+                  (f" (top_p={top_p})" if strategy == 'top_p' else ""))
         
         # 1. Tokenize prompt (使用较短的max_length为生成留出空间)
         prompt_tokens, prompt_mask = self.tokenizer.encode(prompt, max_length=32)
@@ -222,8 +236,11 @@ class CodeGenerator:
                     kv_cache_manager=self.kv_cache_manager
                 )
                 
-                # Temperature采样(内嵌逻辑,无需策略对象)
-                next_token = self._temperature_sample(logits, temperature)
+                # 按策略采样(内嵌逻辑,无需策略对象)
+                next_token = self._sample(
+                    logits, strategy=strategy,
+                    temperature=temperature, top_k=top_k, top_p=top_p
+                )
                 
                 # 记录生成详情(只记录前10步)
                 if verbose and step < 10:
@@ -299,6 +316,145 @@ class CodeGenerator:
             print(f"\n平均生成长度: {result['stats']['avg_generation_length']:.1f} tokens")
         
         return result
+    
+    def _sample(self, logits: torch.Tensor, strategy: str = 'temperature',
+                temperature: float = 0.7, top_k: int = 50,
+                top_p: float = 0.9) -> torch.Tensor:
+        """
+        采样策略分发器 - 根据strategy选择对应的采样方法
+        
+        四种策略的确定性/多样性对比:
+        ┌──────────────┬────────┬────────────────────────────────┐
+        │ 策略          │ 确定性  │ 特点                           │
+        ├──────────────┼────────┼────────────────────────────────┤
+        │ greedy       │ ★★★★★  │ 每步取最大概率,结果完全可复现    │
+        │ temperature  │ ★★★    │ 全词表按温度缩放后采样          │
+        │ top_k        │ ★★★★   │ 只在概率最高的k个token中采样    │
+        │ top_p        │ ★★★★   │ 只在累积概率达p的最小集合中采样  │
+        └──────────────┴────────┴────────────────────────────────┘
+        
+        Args:
+            logits: [batch_size, vocab_size]
+            strategy: 'greedy' | 'temperature' | 'top_k' | 'top_p'
+            temperature: 温度参数
+            top_k: top_k采样的候选数
+            top_p: top_p采样的累积概率阈值
+            
+        Returns:
+            token_ids: [batch_size]
+        """
+        if strategy == 'greedy':
+            return self._greedy_sample(logits)
+        elif strategy == 'temperature':
+            return self._temperature_sample(logits, temperature)
+        elif strategy == 'top_k':
+            return self._top_k_sample(logits, top_k, temperature)
+        elif strategy == 'top_p':
+            return self._top_p_sample(logits, top_p, temperature)
+        else:
+            raise ValueError(
+                f"未知采样策略: '{strategy}', "
+                f"可选: 'greedy' | 'temperature' | 'top_k' | 'top_p'"
+            )
+    
+    def _greedy_sample(self, logits: torch.Tensor) -> torch.Tensor:
+        """
+        贪婪采样 - 每步选择概率最高的token
+        
+        数学形式: next_token = argmax(logits)
+        
+        特点:
+        - 结果完全确定(相同输入必得相同输出)
+        - 缺点: 容易陷入重复循环(如 "public class class class ...")
+        
+        Args:
+            logits: [batch_size, vocab_size]
+            
+        Returns:
+            token_ids: [batch_size]
+        """
+        return torch.argmax(logits, dim=-1)
+    
+    def _top_k_sample(self, logits: torch.Tensor, top_k: int,
+                      temperature: float = 1.0) -> torch.Tensor:
+        """
+        Top-K采样 - 只保留概率最高的k个token,重新归一化后采样
+        
+        数学形式:
+          1. 取logits最大的k个值: S = TopK(logits, k)
+          2. 其余位置设为 -inf:    logits[i] = -inf, i ∉ S
+          3. softmax后采样:        p = softmax(logits / T), sample ~ p
+        
+        直觉: 排除了长尾低概率token(如拼写错误的标识符),
+             又保留了头部候选之间的随机性。
+        k=1 时退化为greedy;k=词表大小时退化为temperature采样。
+        
+        Args:
+            logits: [batch_size, vocab_size]
+            top_k: 保留的候选token数(>=1)
+            temperature: 温度参数
+            
+        Returns:
+            token_ids: [batch_size]
+        """
+        if top_k < 1:
+            raise ValueError(f"top_k必须>=1, 当前: {top_k}")
+        # top_k超过词表大小时等价于不过滤
+        top_k = min(top_k, logits.size(-1))
+        
+        # 取第k大的值作为阈值,低于阈值的全部置为-inf
+        kth_value = torch.topk(logits, top_k, dim=-1).values[:, -1:]
+        filtered = logits.masked_fill(logits < kth_value, float('-inf'))
+        
+        probs = F.softmax(filtered / temperature, dim=-1)
+        return torch.multinomial(probs, num_samples=1).squeeze(-1)
+    
+    def _top_p_sample(self, logits: torch.Tensor, top_p: float,
+                      temperature: float = 1.0) -> torch.Tensor:
+        """
+        Top-P采样(Nucleus Sampling / 核采样) - 保留累积概率达到p的最小token集合
+        
+        数学形式:
+          1. 按概率降序排列:      p_(1) >= p_(2) >= ...
+          2. 找最小n使:           p_(1) + p_(2) + ... + p_(n) >= top_p
+          3. 只在 {token_(1)...token_(n)} 中重新归一化后采样
+        
+        与Top-K的区别:
+        - Top-K的候选数固定(可能太少也可能太多)
+        - Top-P的候选数自适应: 分布尖锐(确定性强)时候选少,
+          分布平坦(不确定性强)时候选多,更符合直觉
+        
+        Args:
+            logits: [batch_size, vocab_size]
+            top_p: 累积概率阈值,(0, 1]
+            temperature: 温度参数
+            
+        Returns:
+            token_ids: [batch_size]
+        """
+        if not 0 < top_p <= 1:
+            raise ValueError(f"top_p必须在(0, 1]范围内, 当前: {top_p}")
+        
+        # 1. 计算概率并降序排序
+        probs = F.softmax(logits / temperature, dim=-1)
+        sorted_probs, sorted_indices = torch.sort(probs, descending=True, dim=-1)
+        
+        # 2. 计算累积概率,找到累积超过top_p的位置
+        cumsum_probs = sorted_probs.cumsum(dim=-1)
+        # 第一个使累积概率超过top_p的位置之后的token全部移除
+        # (保留第一个超过阈值的token本身,即移除"累积到p之后"的token)
+        remove_mask = cumsum_probs > top_p
+        remove_mask[:, 1:] = remove_mask[:, :-1].clone()  # 右移一位,保留临界token
+        remove_mask[:, 0] = False  # 概率最高的token永远保留
+        
+        # 3. 把被移除token的概率置0,还原到原始顺序
+        sorted_probs[remove_mask] = 0
+        filtered_probs = torch.zeros_like(probs)
+        filtered_probs.scatter_(dim=-1, index=sorted_indices, src=sorted_probs)
+        
+        # 4. 归一化后采样
+        filtered_probs = filtered_probs / filtered_probs.sum(dim=-1, keepdim=True)
+        return torch.multinomial(filtered_probs, num_samples=1).squeeze(-1)
     
     def _temperature_sample(self, logits: torch.Tensor, temperature: float) -> torch.Tensor:
         """
@@ -402,3 +558,32 @@ if __name__ == '__main__':
             )
         except Exception as e:
             print(f"Error: {e}")
+    
+    # ==================== 采样策略对比演示 ====================
+    print("\n" + "="*60)
+    print("采样策略对比演示 (greedy / temperature / top_k / top_p)")
+    print("="*60)
+    
+    strategies = [
+        ('greedy',      {}),
+        ('temperature', {'temperature': 0.8}),
+        ('top_k',       {'top_k': 10}),
+        ('top_p',       {'top_p': 0.9}),
+    ]
+    
+    for strat, kwargs in strategies:
+        print(f"\n--- 策略: {strat} {kwargs} ---")
+        try:
+            result = generator.generate(
+                test_prompt,
+                max_length=15,
+                verbose=False,
+                strategy=strat,
+                **kwargs
+            )
+            print(f"  生成 {result['token_count']} tokens")
+        except Exception as e:
+            print(f"  Error: {e}")
+    
+    print("\n提示: greedy结果完全确定; temperature随机性最强;")
+    print("      top_k/top_p在'候选质量'与'随机性'之间取得平衡")
