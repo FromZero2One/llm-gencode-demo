@@ -11,6 +11,62 @@ from scripts.core.attention import MultiHeadAttention, PositionalEncoding
 from scripts.utils.logger import logging_context
 
 
+class RMSNorm(nn.Module):
+    """
+    RMSNorm（Root Mean Square Normalization，均方根归一化）
+
+    ════════════════════════════════════════════════════════════
+    📚 数学原理：RMSNorm vs LayerNorm
+    ════════════════════════════════════════════════════════════
+
+    LayerNorm（传统）：
+        y = (x - μ) / sqrt(σ² + ε) * γ + β
+        需要：减均值 μ、除标准差 σ、缩放 γ、偏移 β —— 共4个计算步骤
+
+    RMSNorm（现代，Qwen3/LLaMA 标配）：
+        y = x / sqrt(mean(x²) + ε) * γ
+        只需要：除均方根 RMS、缩放 γ —— 去掉了均值中心化和偏移
+
+    为什么去掉均值中心化？
+    - 实验表明（Zhang & Sennrich, 2019）：LayerNorm 的收益主要来自
+      缩放不变性，而非均值中心化。去掉中心化几乎不损失效果。
+    - 少一次减法和一次加法，在深层网络中计算更快、显存更省。
+    - 数值更稳定：不改变向量的方向信息，只归一化其模长。
+
+    参数量：只有 γ（每个 d_model 维一个可学习缩放向量），无 β。
+    ════════════════════════════════════════════════════════════
+
+    Args:
+        d_model (int): 归一化的特征维度
+        eps (float): 数值稳定项，防止除零，默认 1e-6
+
+    Example:
+        >>> norm = RMSNorm(128)
+        >>> x = torch.randn(1, 20, 128)
+        >>> y = norm(x)          # y.shape == x.shape
+        >>> # 每个位置的均方根接近1:
+        >>> torch.sqrt((y ** 2).mean(dim=-1))
+    """
+
+    def __init__(self, d_model: int, eps: float = 1e-6):
+        super().__init__()
+        self.eps = eps
+        # 可学习缩放参数 γ（无偏移 β）
+        self.weight = nn.Parameter(torch.ones(d_model))
+
+    def forward(self, x: torch.Tensor) -> torch.Tensor:
+        # 1. 计算每个位置特征维度的均方: mean(x²)
+        #    注意: 不减均值（与LayerNorm的核心区别）
+        x_squared_mean = x.pow(2).mean(dim=-1, keepdim=True)
+
+        # 2. 除以均方根: x / sqrt(mean(x²) + ε)
+        #    先转float32再归一化，避免fp16训练时数值溢出（工业惯例）
+        x_normed = x * torch.rsqrt(x_squared_mean + self.eps)
+
+        # 3. 乘以可学习缩放 γ
+        return self.weight * x_normed
+
+
 class TransformerEncoderLayer(nn.Module):
     """
     Transformer Encoder层 - 提取输入序列的特征表示
@@ -33,9 +89,9 @@ class TransformerEncoderLayer(nn.Module):
         >>> output, attn_weights = layer(src)
     """
     
-    def __init__(self, d_model: int = 128, nhead: int = 8, 
+    def __init__(self, d_model: int = 128, nhead: int = 8,
                  dim_feedforward: int = 512, dropout: float = 0.1,
-                 debug_mode: bool = False):
+                 debug_mode: bool = False, norm_type: str = 'layernorm'):
         """
         初始化Encoder层
         
@@ -84,9 +140,17 @@ class TransformerEncoderLayer(nn.Module):
             nn.Dropout(dropout)
         )
         
-        # Layer Normalization
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
+        # Normalization（根据 norm_type 选择 LayerNorm 或 RMSNorm）
+        # LayerNorm: 传统 Transformer 标准，中心化 + 缩放 + 偏移
+        # RMSNorm:   现代大模型标准（Qwen3/LLaMA），只做均方根归一化，更快
+        if norm_type == 'rmsnorm':
+            self.norm1 = RMSNorm(d_model)
+            self.norm2 = RMSNorm(d_model)
+        elif norm_type == 'layernorm':
+            self.norm1 = nn.LayerNorm(d_model)
+            self.norm2 = nn.LayerNorm(d_model)
+        else:
+            raise ValueError(f"未知归一化类型: '{norm_type}', 可选: 'layernorm' | 'rmsnorm'")
         
         self.dropout = nn.Dropout(dropout)
     
@@ -188,7 +252,7 @@ class TransformerDecoderLayer(nn.Module):
     
     def __init__(self, d_model: int = 128, nhead: int = 8,
                  dim_feedforward: int = 512, dropout: float = 0.1,
-                 debug_mode: bool = False):
+                 debug_mode: bool = False, norm_type: str = 'layernorm'):
         """
         初始化Decoder层
         
@@ -230,10 +294,18 @@ class TransformerDecoderLayer(nn.Module):
             nn.Dropout(dropout)
         )
         
-        # Layer Normalization
-        self.norm1 = nn.LayerNorm(d_model)
-        self.norm2 = nn.LayerNorm(d_model)
-        self.norm3 = nn.LayerNorm(d_model)
+        # Normalization（根据 norm_type 选择 LayerNorm 或 RMSNorm）
+        # Decoder 有 3 个子层，因此需要 3 个归一化层
+        if norm_type == 'rmsnorm':
+            self.norm1 = RMSNorm(d_model)
+            self.norm2 = RMSNorm(d_model)
+            self.norm3 = RMSNorm(d_model)
+        elif norm_type == 'layernorm':
+            self.norm1 = nn.LayerNorm(d_model)
+            self.norm2 = nn.LayerNorm(d_model)
+            self.norm3 = nn.LayerNorm(d_model)
+        else:
+            raise ValueError(f"未知归一化类型: '{norm_type}', 可选: 'layernorm' | 'rmsnorm'")
         
         self.dropout = nn.Dropout(dropout)
     
@@ -377,7 +449,7 @@ class TransformerModel(nn.Module):
                  nhead: int = 8, num_encoder_layers: int = 2,
                  num_decoder_layers: int = 2, dim_feedforward: int = 512,
                  dropout: float = 0.1, max_seq_length: int = 128,
-                 debug_mode: bool = False):
+                 debug_mode: bool = False, norm_type: str = 'layernorm'):
         """
         初始化完整的Transformer模型
         
@@ -440,6 +512,7 @@ class TransformerModel(nn.Module):
         print(f"  - Decoder层数: {num_decoder_layers}")
         print(f"  - FeedForward维度: {dim_feedforward}")
         print(f"  - 最大序列长度: {max_seq_length}")
+        print(f"  - 归一化类型: {norm_type}")
         
         self.d_model = d_model
         self.max_seq_length = max_seq_length
@@ -455,13 +528,15 @@ class TransformerModel(nn.Module):
         
         # Encoder layers
         self.encoder_layers = nn.ModuleList([
-            TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout, debug_mode=debug_mode)
+            TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout,
+                                    debug_mode=debug_mode, norm_type=norm_type)
             for _ in range(num_encoder_layers)
         ])
         
         # Decoder layers
         self.decoder_layers = nn.ModuleList([
-            TransformerDecoderLayer(d_model, nhead, dim_feedforward, dropout, debug_mode=debug_mode)
+            TransformerDecoderLayer(d_model, nhead, dim_feedforward, dropout,
+                                    debug_mode=debug_mode, norm_type=norm_type)
             for _ in range(num_decoder_layers)
         ])
         
@@ -1067,3 +1142,40 @@ if __name__ == '__main__':
         print(f"  有 KV Cache 耗时: {time_with_cache:.4f}s")
         if time_with_cache > 0:
             print(f"  加速比: {time_no_cache / time_with_cache:.2f}x")
+        
+        # ==================== RMSNorm 验证 ====================
+        print("\n" + "="*60)
+        print("RMSNorm 验证 (LayerNorm vs RMSNorm)")
+        print("="*60)
+        
+        rms = RMSNorm(128)
+        ln = nn.LayerNorm(128)
+        x = torch.randn(4, 10, 128)
+        
+        y_rms = rms(x)
+        y_ln = ln(x)
+        
+        # RMSNorm 输出的均方根应接近 1 * |γ|=1（未中心化）
+        rms_per_pos = torch.sqrt(y_rms.pow(2).mean(dim=-1))
+        # LayerNorm 输出的标准差应接近 1（中心化后）
+        std_per_pos = y_ln.std(dim=-1, unbiased=False)
+        
+        print(f"  输入 shape: {tuple(x.shape)}")
+        print(f"  RMSNorm 输出均方根 (应≈1): {rms_per_pos.mean().item():.4f}")
+        print(f"  LayerNorm 输出标准差 (应≈1): {std_per_pos.mean().item():.4f}")
+        print(f"  RMSNorm 参数量: {sum(p.numel() for p in rms.parameters())} (仅γ, 无β)")
+        print(f"  LayerNorm 参数量: {sum(p.numel() for p in ln.parameters())} (γ + β)")
+        
+        assert abs(rms_per_pos.mean().item() - 1.0) < 0.1, "RMSNorm归一化异常"
+        assert abs(std_per_pos.mean().item() - 1.0) < 0.1, "LayerNorm归一化异常"
+        print(f"  [OK] RMSNorm 验证通过")
+        
+        # 用 RMSNorm 构建模型并跑一次前向
+        model_rms = TransformerModel(vocab_size=1000, d_model=128, nhead=8,
+                                     num_encoder_layers=2, num_decoder_layers=2,
+                                     norm_type='rmsnorm')
+        src_rms = torch.randint(0, 1000, (1, 20))
+        tgt_rms = torch.randint(0, 1000, (1, 15))
+        logits_rms, _, _ = model_rms(src_rms, tgt_rms)
+        print(f"  RMSNorm 模型前向输出 shape: {tuple(logits_rms.shape)}")
+        print(f"  [OK] RMSNorm 模型测试通过")
