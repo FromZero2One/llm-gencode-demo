@@ -2,9 +2,11 @@
 代码生成器模块 - 简化的代码生成和后处理逻辑
 
 教学优化:
-- 移除复杂的SamplingStrategy抽象层,只保留Temperature采样
+- 移除复杂的SamplingStrategy抽象层,内嵌4种采样方法
+  (greedy / temperature / top_k / top_p, 通过 strategy 参数选择)
 - 内嵌后处理功能,减少类层次
-- 简化接口: generate(prompt, temperature=0.7)
+- 简化接口: generate(prompt, strategy='temperature', ...)
+- 架构感知: Decoder-Only 模型时 prompt 拼进生成序列(自回归续写)
 """
 
 import sys
@@ -21,6 +23,7 @@ class SimplePostProcessor:
     """简化的后处理器 - 只做基础的格式化和import管理"""
     
     def __init__(self):
+        """初始化常见 Java 类 → import 语句的映射表（后处理自动补 import 用）"""
         # 常见类和对应的import
         self.import_map = {
             'List': 'java.util.List',

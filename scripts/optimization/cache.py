@@ -78,6 +78,7 @@ class SemanticCache:
 
     def __init__(self, max_size: int = 50, ngram_size: int = 2,
                  similarity_threshold: float = 0.7):
+        """参数含义见类 docstring（初始化逻辑在下方打印区）"""
         self.max_size = max_size
         self.ngram_size = ngram_size
         self.similarity_threshold = similarity_threshold
@@ -308,6 +309,7 @@ class GenerationCache:
     """
     
     def __init__(self, max_size: int = 100):
+        """初始化 LRU 缓存结构（OrderedDict 保持访问顺序）与统计计数器"""
         self.max_size = max_size
         self.cache = OrderedDict()  # 保持插入顺序
         self.access_count = {}  # 访问计数
@@ -394,11 +396,16 @@ class GenerationCache:
     
     def get_similar(self, prompt: str, similarity_threshold: float = 0.9) -> Optional[str]:
         """
-        查找相似的缓存结果
-        
+        查找相似的缓存结果（旧方案，已被 SemanticCache 取代）
+
+        ⚠️ 弃用说明：本方法基于 Java 关键词 MD5 做语义匹配，存在两个缺陷：
+        1. 中文 prompt 提取不到关键词 → 所有中文请求共享同一个空串哈希 → 必然误命中
+        2. Pipeline 已改用 SemanticCache（n-gram 向量 + 余弦相似度）作为 L2 缓存，
+           不再调用本方法。保留仅为了解"关键词哈希"这一朴素思路的教学对比。
+
         Args:
             prompt: 提示文本
-            similarity_threshold: 相似度阈值（0-1）
+            similarity_threshold: 相似度阈值（0-1）(实际未使用，保留兼容旧签名)
             
         Returns:
             相似的缓存结果，如果不存在返回None

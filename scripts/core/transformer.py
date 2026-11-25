@@ -49,12 +49,18 @@ class RMSNorm(nn.Module):
     """
 
     def __init__(self, d_model: int, eps: float = 1e-6):
+        """
+        Args:
+            d_model: 特征维度
+            eps: 防止除零的数值稳定项
+        """
         super().__init__()
         self.eps = eps
         # 可学习缩放参数 γ（无偏移 β）
         self.weight = nn.Parameter(torch.ones(d_model))
 
     def forward(self, x: torch.Tensor) -> torch.Tensor:
+        """前向传播: RMSNorm(x) = x / sqrt(mean(x²) + eps) * γ"""
         # 1. 计算每个位置特征维度的均方: mean(x²)
         #    注意: 不减均值（与LayerNorm的核心区别）
         x_squared_mean = x.pow(2).mean(dim=-1, keepdim=True)
@@ -464,11 +470,11 @@ class TransformerModel(nn.Module):
         >>> tgt = torch.randint(0, 1000, (1, 15))  # target code
         >>> logits, enc_weights, dec_weights = model(src, tgt)
         >>> 
-        >>> # 推理模式
+        >>> # 推理模式（配合 KVCacheManager 使用，见 generate_step 的 Example）
         >>> model.clear_cache()
         >>> generated = torch.tensor([[BOS_TOKEN_ID]])
         >>> for _ in range(50):
-        ...     logits = model.generate_step(src, generated)
+        ...     logits, kv = model.generate_step(src, generated)
         ...     next_token = torch.argmax(logits, dim=-1)
         ...     generated = torch.cat([generated, next_token], dim=1)
     """
@@ -970,12 +976,13 @@ class TransformerModel(nn.Module):
             >>> src = torch.randint(0, 1000, (1, 20))  # prompt
             >>> BOS_TOKEN_ID = 2
             >>> generated = torch.tensor([[BOS_TOKEN_ID]])  # [1, 1]
-            >>> logits = model.generate_step(src, generated)
+            >>> logits, kv = model.generate_step(src, generated)
             >>> logits.shape
             torch.Size([1, 1000])
         
         Note:
             - 这是autoregressive（自回归）生成：每个token依赖于之前的所有tokens
+            - 返回 (logits, kv_cache_manager) 二元组；第二个值用于跨步复用 KV Cache
             - 需要清除缓存才能开始新的生成任务（调用 clear_cache()）
             - 可以使用不同的采样策略（greedy、top-k、top-p等）来选择next_token
         """
@@ -1078,7 +1085,7 @@ class TransformerModel(nn.Module):
             >>> src1 = torch.randint(0, 1000, (1, 20))
             >>> generated1 = torch.tensor([[BOS_TOKEN_ID]])
             >>> for _ in range(50):
-            ...     logits = model.generate_step(src1, generated1)
+            ...     logits, kv = model.generate_step(src1, generated1)
             ...     next_token = torch.argmax(logits, dim=-1, keepdim=True)
             ...     generated1 = torch.cat([generated1, next_token], dim=1)
             >>> 
@@ -1089,7 +1096,7 @@ class TransformerModel(nn.Module):
             >>> src2 = torch.randint(0, 1000, (1, 15))
             >>> generated2 = torch.tensor([[BOS_TOKEN_ID]])
             >>> for _ in range(50):
-            ...     logits = model.generate_step(src2, generated2)
+            ...     logits, kv = model.generate_step(src2, generated2)
             ...     ...
         
         Note:
@@ -1122,6 +1129,13 @@ class DecoderOnlyBlock(nn.Module):
                  dim_feedforward: int = 512, dropout: float = 0.1,
                  norm_type: str = 'layernorm', use_rope: bool = False,
                  max_seq_length: int = 512):
+        """
+        Args:
+            d_model/nhead/dim_feedforward/dropout: 与 EncoderLayer 相同含义
+            norm_type: 'layernorm' | 'rmsnorm'（仅2个归一化层，无交叉注意力）
+            use_rope: True 时位置信息由 Attention 内部 RoPE 注入
+            max_seq_length: RoPE 预生成表的最大长度
+        """
         super().__init__()
         self.self_attn = MultiHeadAttention(d_model, nhead, dropout,
                                             use_rope=use_rope,
@@ -1209,6 +1223,7 @@ class DecoderOnlyTransformer(nn.Module):
                  position_embedding_type: str = 'sinusoidal',
                  tie_word_embeddings: bool = True,
                  debug_mode: bool = False):
+        """参数含义见类 docstring（本类只有一个层数概念：num_layers）"""
         super().__init__()
         self.d_model = d_model
         self.vocab_size = vocab_size
@@ -1254,6 +1269,7 @@ class DecoderOnlyTransformer(nn.Module):
         print(f"  - 参数量: {sum(p.numel() for p in self.parameters()):,}")
 
     def _init_weights(self):
+        """权重初始化：>1维参数（线性层权重）用 Xavier 均匀分布，利于训练稳定"""
         for p in self.parameters():
             if p.dim() > 1:
                 nn.init.xavier_uniform_(p)
@@ -1544,6 +1560,7 @@ if __name__ == '__main__':
         q1 = torch.randn(1, 1, 1, 16)
         k1 = torch.randn(1, 1, 1, 16)
         def pair_dot(pos_q: int, pos_k: int) -> float:
+            """RoPE 相对位置性质验证：旋转后 q·k 只依赖 (pos_q - pos_k) 的相对距离"""
             return (rot_at(q1, pos_q) * rot_at(k1, pos_k)).sum().item()
         
         # 位置 (2,5) 与平移后的 (6,9)：相对距离都是 3，内积应相等

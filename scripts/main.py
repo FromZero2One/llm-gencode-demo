@@ -37,6 +37,12 @@ logging.basicConfig(
 logger = logging.getLogger(__name__)
 
 
+def _select_device() -> str:
+    """自动选择可用设备：优先 CUDA GPU，回退 CPU（torch 不接受 'gpu' 字符串）"""
+    import torch
+    return 'cuda' if torch.cuda.is_available() else 'cpu'
+
+
 def demo_basic_generation():
     """演示基本的代码生成流程"""
     print("\n" + "="*80)
@@ -46,7 +52,7 @@ def demo_basic_generation():
     # 创建管道 (使用small preset,启用 debug_mode)
     pipeline = CodeGenerationPipeline(
         preset='small',
-        device='gpu',
+        device=_select_device(),  # 自动选择 cuda/cpu
         debug_mode=True  # 启用调试模式
     )
     
@@ -97,21 +103,32 @@ def demo_sampling_strategies():
     
     prompt = "public class UserController"
     
-    temperatures = [0.3, 0.7, 1.2]
-    
     print(f"\nPrompt: {prompt}\n")
     
-    for temp in temperatures:
+    # 采样策略对比（P1 优化成果）：
+    # - greedy:      永远选最高概率 token，输出完全确定
+    # - temperature: 按温度缩放概率分布再采样
+    # - top_k:       只在概率最高的 k 个 token 里采样
+    # - top_p:       只在累计概率达到 p 的最小 token 集合里采样（核采样）
+    strategies = [
+        ('greedy', {}),
+        ('temperature', {'temperature': 0.7}),
+        ('top_k', {'top_k': 10}),
+        ('top_p', {'top_p': 0.9}),
+    ]
+    
+    for strategy, kwargs in strategies:
         print(f"\n{'-'*80}")
-        print(f"Temperature = {temp}")
+        print(f"策略 = {strategy}" + (f" ({kwargs})" if kwargs else ""))
         print(f"{'-'*80}")
         
         result = pipeline.generate(
             prompt=prompt,
             max_length=30,
-            temperature=temp,
+            strategy=strategy,
             use_cache=False,
-            verbose=False
+            verbose=False,
+            **kwargs
         )
         
         if result['success']:
@@ -119,9 +136,10 @@ def demo_sampling_strategies():
             print(result['processed_code'])
     
     print("\n说明:")
-    print("  - 低温度 (0.3): 更确定性，倾向于高概率token")
-    print("  - 中温度 (0.7): 平衡确定性和多样性")
-    print("  - 高温度 (1.2): 更随机，更多样化但可能不太准确")
+    print("  - greedy:       确定性最强，相同输入永远相同输出，可能陷入重复")
+    print("  - temperature:  温度低→保守，温度高→多样（0.3/0.7/1.2 逐级放开）")
+    print("  - top_k:        截断长尾，只在最可能的 k 个候选中采样")
+    print("  - top_p:        动态候选集，分布尖锐时候选少，平坦时候选多")
 
 
 def demo_cache_mechanism():
@@ -145,21 +163,26 @@ def demo_cache_mechanism():
     print("\n--- 第二次相同请求 ---")
     result2 = pipeline.generate(prompt, max_length=20, verbose=True)
     
-    # 第三次相同请求（继续命中缓存）
-    print("\n--- 第三次相同请求 ---")
-    result3 = pipeline.generate(prompt, max_length=20, verbose=True)
+    # 第三次：相似但不完全相同的请求（应命中 L2 语义缓存）
+    print("\n--- 第三次相似请求（语义缓存） ---")
+    result3 = pipeline.generate(prompt + " extends BaseService", max_length=20, verbose=True)
     
     print(f"\n性能对比:")
-    print(f"  第一次（生成）: {result1['processing_time']:.4f}s")
-    print(f"  第二次（缓存）: {result2['processing_time']:.4f}s")
-    print(f"  第三次（缓存）: {result3['processing_time']:.4f}s")
+    print(f"  第一次（生成）:        {result1['processing_time']:.4f}s")
+    print(f"  第二次（L1 精确缓存）: {result2['processing_time']:.4f}s")
+    print(f"  第三次（L2 语义缓存）: {result3['processing_time']:.4f}s")
     
     if result2['source'] == 'cache':
         speedup = result1['processing_time'] / result2['processing_time'] if result2['processing_time'] > 0 else float('inf')
-        print(f"\n[OK] 缓存加速比: {speedup:.1f}x")
+        print(f"\n[OK] L1 缓存加速比: {speedup:.1f}x")
     
-    # 显示缓存统计
+    if result3['source'] == 'cache':
+        print(f"[OK] L2 语义缓存命中（n-gram 相似度匹配）")
+    
+    # 显示双级缓存统计
+    print(f"\nL1 精确缓存统计:")
     pipeline.cache.display_stats()
+    print(f"\nL2 语义缓存统计: {pipeline.semantic_cache.get_stats()}")
 
 
 def demo_multiple_samples():

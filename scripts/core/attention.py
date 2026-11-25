@@ -216,19 +216,23 @@ class MultiHeadAttention(nn.Module):
             attention_weights: 注意力权重 [batch_size, nhead, seq_len_q, seq_len_k]
                                - 可用于可视化，观察模型关注哪些位置
                                - 第i行第j列表示query_i对key_j的关注程度
+            
+            present_kv: 当前步的 (key, value) 元组
+                        - 供 KV Cache 逐步拼接使用（推理加速）
+                        - 不需要缓存时可忽略（用 `_` 接收）
         
         Example:
             >>> # Self-attention示例
             >>> batch_size, seq_len, d_model = 2, 10, 128
             >>> embedding = torch.randn(batch_size, seq_len, d_model)
-            >>> output, weights = attention(embedding, embedding, embedding)
+            >>> output, weights, kv = attention(embedding, embedding, embedding)
             >>> print(output.shape)   # [2, 10, 128]
             >>> print(weights.shape)  # [2, 8, 10, 10]
             
             >>> # Cross-attention示例 (Decoder关注Encoder)
             >>> encoder_output = torch.randn(2, 15, 128)  # Encoder输出
             >>> decoder_hidden = torch.randn(2, 10, 128)  # Decoder隐藏状态
-            >>> output, weights = attention(decoder_hidden, encoder_output, encoder_output)
+            >>> output, weights, kv = attention(decoder_hidden, encoder_output, encoder_output)
             >>> print(output.shape)   # [2, 10, 128] - Decoder维度
         """
         batch_size = query.size(0)
@@ -512,6 +516,12 @@ class RoPEPositionalEncoding(nn.Module):
     """
 
     def __init__(self, head_dim: int, max_len: int = 512, theta: float = 10000.0):
+        """
+        Args:
+            head_dim: 每个注意力头的维度（必须为偶数，按二维子平面配对旋转）
+            max_len: 预生成 cos/sin 表的最大位置数
+            theta: 频率基数（Qwen3/Llama 默认 10000）
+        """
         super().__init__()
         assert head_dim % 2 == 0, "RoPE要求head_dim必须为偶数(按二维子平面配对旋转)"
 
@@ -588,6 +598,7 @@ def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor,
     # 两半需要相同的角度 → cos_full = [cos, cos]
     # （与 minimind 的 torch.cat((freqs, freqs), dim=-1) 完全一致）
     def _dup(t):
+        """把 cos/sin 表复制一份拼到 d_k 维（cos, sin 各占一半维度）"""
         return torch.cat([t, t], dim=-1)
     cos_q, sin_q, cos_k, sin_k = _dup(cos_q), _dup(sin_q), _dup(cos_k), _dup(sin_k)
 
@@ -620,6 +631,12 @@ class PositionalEncoding(nn.Module):
     """
     
     def __init__(self, d_model: int = 128, dropout: float = 0.1, max_len: int = 500):
+        """
+        Args:
+            d_model: 模型维度（需与 embedding 维度一致）
+            dropout: 位置编码后的 dropout 比例
+            max_len: 预生成位置编码表的最大序列长度
+        """
         super().__init__()
         self.dropout = nn.Dropout(p=dropout)
         
@@ -712,8 +729,8 @@ if __name__ == '__main__':
     # 创建注意力层
     attention = MultiHeadAttention(d_model=d_model, nhead=nhead)
     
-    # 前向传播
-    output, attn_weights = attention(query, key, value)
+    # 前向传播（返回值: output, attn_weights, present_kv）
+    output, attn_weights, _ = attention(query, key, value)
     
     print(f"\n输出形状:")
     print(f"  Output: {output.shape}")

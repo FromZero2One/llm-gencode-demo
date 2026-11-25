@@ -2,7 +2,20 @@
 
 > 基于对 `llm-codegen-demo` 全部源码的完整阅读，并参考 `minimind`（Decoder-Only，Qwen3 风格、GQA、RMSNorm、SwiGLU、RoPE、完整训练链路、SGLang 后端）与 2026 年 LLM 工程最佳实践制定。
 >
-> 核心原则：**保持教育性质（中文注释、单文件单概念、可直接运行），逐步向“现代轻量 LLM 工程形态”靠近，让学习者既能看懂原理，又能训练出能用的模型。**
+> 核心原则：**保持教育性质（中文注释、单文件单概念、可直接运行），逐步向"现代轻量 LLM 工程形态"靠近，让学习者既能看懂原理，又能训练出能用的模型。**
+
+---
+
+## ✅ 实施进度总览（2026-11 更新）
+
+| 阶段 | 内容 | 状态 |
+|------|------|------|
+| P1 | KV Cache 集成 / Top-K·Top-P 采样 / RMSNorm / RoPE | ✅ 完成 |
+| P2 | DecoderOnlyTransformer + 权重绑定 + 双架构 Pipeline | ✅ 完成（顺带修复因果掩码语义反转 bug） |
+| P3 | Pipeline.load_checkpoint / save_model + Trainer 双架构分发 | ✅ 完成（顺带修复 TextDataset 与模块导入 bug） |
+| P4 | OpenAI 兼容 API（流式 SSE）+ HF 格式模型转换 | ✅ 完成 |
+| P5 | SemanticCache（n-gram 向量 + 余弦相似度）双级缓存 | ✅ 完成 |
+| 待做 | GQA / SwiGLU / Beam Search / DPO·GRPO·LoRA / Streamlit WebUI | ⬜ 未实施 |
 
 ---
 

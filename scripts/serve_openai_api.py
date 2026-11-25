@@ -42,11 +42,13 @@ _model_name = "llm-codegen-demo"
 
 
 class ChatMessage(BaseModel):
+    """OpenAI 消息格式：{'role': 'system'|'user'|'assistant', 'content': '...'}"""
     role: str = "user"
     content: str
 
 
 class ChatRequest(BaseModel):
+    """OpenAI chat.completions 请求体（字段与官方 API 对齐，采样参数映射到本项目策略）"""
     model: str = "llm-codegen-demo"
     messages: list
     temperature: float = Field(default=0.7, ge=0.0, allow_inf_nan=False)

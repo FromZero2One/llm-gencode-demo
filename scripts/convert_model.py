@@ -86,6 +86,7 @@ def convert_to_hf(filepath: str, architecture: str, output_dir: str,
 
 
 def main():
+    """命令行入口：解析参数 → 检查 checkpoint → 转换为 HF 格式目录"""
     parser = argparse.ArgumentParser(description="模型格式转换工具")
     parser.add_argument('--checkpoint', required=True, type=str, help='输入 .pt 权重路径')
     parser.add_argument('--architecture', default='encdec', type=str,

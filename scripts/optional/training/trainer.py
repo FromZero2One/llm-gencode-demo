@@ -369,6 +369,7 @@ class TextDataset(Dataset):
         logger.info(f"预处理完成，共 {len(self.examples)} 个样本")
     
     def __len__(self):
+        """返回数据集样本数（DataLoader 必需的协议方法）"""
         return len(self.examples)
     
     def __getitem__(self, idx):
