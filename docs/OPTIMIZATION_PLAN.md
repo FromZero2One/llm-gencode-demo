@@ -22,6 +22,36 @@
 | P10 | 架构补强（GQA / SwiGLU / SDPA）+ DPO 对齐训练 | ✅ 完成（attention GQA/SDPA + SwiGLU + train_dpo） |
 | 远期待做 | MoE / GRPO·PPO / Agent / 蒸馏 / Beam Search / Streamlit WebUI | ⬜ 暂不实施 |
 
+### 后期待做清单（2026-11 收官时整理）
+
+P1–P10 已全部完成并提交。以下为当时主动排除或做了简化、留待后期再做的项，按实施成本从低到高排列：
+
+**快速可补（1 天内量级）**
+| 项 | 说明 | 建议起点 |
+|----|------|---------|
+| API 加载 LoRA 插件 | `serve_openai_api.py` 加 `--lora_path`，启动时 `apply_lora + load_lora`，一个底座挂多个行为插件 | `scripts/core/lora.py` 已有现成函数，纯接线 |
+| INT8 动态量化 | 推理提速 + 体积减半，`torch.ao.quantization.quantize_dynamic` 一行核心 | 可加 `scripts/optimization/quantize.py` |
+| Streamlit 聊天 WebUI | 把 SFT 模型包成可交互对话界面，演示效果最直观 | `scripts/webui.py`，复用 `chat_template` + `generate_step` |
+
+**中等成本（对齐 minimind 完整实现）**
+| 项 | 现状差距 | 做法 |
+|----|---------|------|
+| Beam Search 解码 | 只有 temperature/top-k/top-p 贪心与采样 | `code_generator.py` 加 beam 维度展开 |
+| YaRN/NTK 长度外推 | RoPE 有，但超过预生成长度即失效 | RoPE 频率缩放公式 |
+| MQA / MLA | 只有 GQA | MQA=1 个 KV 头的 GQA 特例，改动极小；MLA 较复杂 |
+| PagedAttention 式缓存 | 教学版预分配连续张量 | 分页块管理，参考 vLLM 论文 |
+
+**大工程（当初明确排除）**
+| 项 | 排除原因 |
+|----|---------|
+| MoE（混合专家） | 路由+专家并行，demo 规模收益小 |
+| GRPO / PPO 强化学习对齐 | DPO 已覆盖对齐主线；PPO 需 4 模型在线，重且不稳 |
+| Agent / 工具调用 | 超出"LLM 本体教学"范围 |
+| 知识蒸馏 | 需要教师模型 |
+| 多机分布式训练 | 保持零依赖单机可跑 |
+| vLLM / ollama / llama.cpp 部署导出 | 引入外部重依赖，破坏零依赖原则 |
+| 真实规模指令数据 | demo 仅 400 条重复语料，真实效果需更大更多样的 SFT/DPO 数据 |
+
 ### P6–P10 详细方案（对标 minimind，2026-11 制定）
 
 > 目标：从"理解 LLM 原理的教学项目"升级为"**能从零练出一个会对话的小模型**"的完整项目。
