@@ -15,7 +15,50 @@
 | P3 | Pipeline.load_checkpoint / save_model + Trainer 双架构分发 | ✅ 完成（顺带修复 TextDataset 与模块导入 bug） |
 | P4 | OpenAI 兼容 API（流式 SSE）+ HF 格式模型转换 | ✅ 完成 |
 | P5 | SemanticCache（n-gram 向量 + 余弦相似度）双级缓存 | ✅ 完成 |
-| 待做 | GQA / SwiGLU / Beam Search / DPO·GRPO·LoRA / Streamlit WebUI | ⬜ 未实施 |
+| P6 | BPE 分词器（对标 minimind train_tokenizer） | ✅ 完成 |
+| P7 | 真实数据管线 + 预训练闭环 | ⬜ |
+| P8 | SFT 指令微调 + Chat Template + 真多轮 API | ⬜ |
+| P9 | LoRA 微调（apply / load / merge） | ⬜ |
+| P10 | 架构补强（GQA / SwiGLU / SDPA）+ DPO 对齐训练 | ⬜ |
+| 远期待做 | MoE / GRPO·PPO / Agent / 蒸馏 / Beam Search / Streamlit WebUI | ⬜ 暂不实施 |
+
+### P6–P10 详细方案（对标 minimind，2026-11 制定）
+
+> 目标：从"理解 LLM 原理的教学项目"升级为"**能从零练出一个会对话的小模型**"的完整项目。
+> 依赖链：P6 → P7 → P8 → P9 → P10（严格串行，每阶段产出下一阶段的输入）。
+
+**P6 · BPE 分词器**
+- 现状问题：`SimpleTokenizer` 正则 + 固定词表，OOV 全靠 `<UNK>`，是模型输出大量 `<UNK>` 的根因
+- 新建 `scripts/core/bpe_tokenizer.py`：`tokenizers` 库 ByteLevel BPE，教学词表 6400 + 36 特殊位（chat 角色位为 P8 铺路）
+- 兼容层：与 `SimpleTokenizer` 相同的 `encode/decode/vocab` 接口，Pipeline 加 `tokenizer_type='regex'|'bpe'` 零改动切换
+- 验收：任意输入（生造词/混合中英）无损编解码 roundtrip
+
+**P7 · 真实数据管线 + 预训练**
+- 新建 `scripts/data/lm_dataset.py`：`PretrainDataset`（txt/jsonl → BPE → 滑窗自回归样本，支持流式读取）+ demo 语料生成脚本
+- 新建 `scripts/training/train_pretrain.py`：对接 Trainer，支持梯度累积，loss 曲线对接 visualizer
+- 验收：训练后模型能续写语料中的代码模式，不再纯噪声
+
+**P8 · SFT 指令微调 + Chat Template**
+- 新建 `scripts/core/chat_template.py`：ChatML 风格模板 + loss mask（仅 assistant 部分计 loss）
+- 新建 `scripts/data/sft_dataset.py`：jsonl → `(input_ids, labels)`，prompt 部分 label=-100
+- 新建 `scripts/training/train_full_sft.py` + demo 问答数据
+- `serve_openai_api.py` 接模板，支持真多轮对话
+- 验收：API 问答按 SFT 格式回答
+
+**P9 · LoRA 微调**
+- 新建 `scripts/core/lora.py`：`LoRALinear`（W' = W + (α/r)·BA）、`apply_lora / load_lora / merge_lora`
+- 新建 `scripts/training/train_lora.py`：只训低秩参数，打印参数量对比
+- `serve_openai_api.py` 加 `--lora_path`
+- 验收：主模型权重 hash 不变，行为改变
+
+**P10 · 架构补强 + DPO**
+- GQA：`n_kv_heads < n_q_heads`，KV Cache 显存 ÷4，与已有 KV Cache 教学串联
+- SwiGLU：`ffn_type='relu'|'swiglu'` 开关
+- SDPA：`F.scaled_dot_product_attention` 快速路径（保留手写路径教学）
+- DPO：`train_dpo.py` + 偏好对数据，sigmoid loss
+- 验收：GQA 显存对比、DPO 后 chosen 偏好上升
+
+**明确排除**：MoE、PPO/GRPO/Agent/蒸馏、多机训练、爬取数据集（保持零依赖可运行）。
 
 ---
 

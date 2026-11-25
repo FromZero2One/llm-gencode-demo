@@ -196,3 +196,9 @@ results/
 
 # images
 /visualizations /
+
+# BPE tokenizer artifacts (trained vocabulary - keep for out-of-box use)
+!tokenizer_bpe/**
+
+# Generated demo corpus (regenerable via python -m scripts.data.corpus_demo)
+scripts/data/corpus_demo.txt

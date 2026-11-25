@@ -171,7 +171,8 @@ class CodeGenerationPipeline:
                  device: str = 'cpu',
                  debug_mode: bool = False,
                  architecture: str = 'encdec',
-                 similarity_threshold: float = 0.7):
+                 similarity_threshold: float = 0.7,
+                 tokenizer_type: str = 'regex'):
         """
         初始化管道
         
@@ -233,8 +234,16 @@ class CodeGenerationPipeline:
         print(f"{'='*60}")
         
         # 1. 创建Tokenizer
-        print("\n[Step 1] 创建Tokenizer...")
-        self.tokenizer = SimpleTokenizer(vocab_size=config['vocab_size'], debug_mode=debug_mode)
+        # tokenizer_type: 'regex' 保留教学原版（按词编号，OOV→UNK）
+        #                 'bpe'   现代方案（ByteLevel BPE，永不 OOV，见 scripts/core/bpe_tokenizer.py）
+        print(f"\n[Step 1] 创建Tokenizer ({tokenizer_type})...")
+        if tokenizer_type == 'bpe':
+            from scripts.core.bpe_tokenizer import BPETokenizer
+            self.tokenizer = BPETokenizer(debug_mode=debug_mode)
+        elif tokenizer_type == 'regex':
+            self.tokenizer = SimpleTokenizer(vocab_size=config['vocab_size'], debug_mode=debug_mode)
+        else:
+            raise ValueError(f"未知分词器类型: '{tokenizer_type}', 可选: 'regex' | 'bpe'")
         
         # 2. 创建Transformer模型
         print("\n[Step 2] 创建Transformer模型...")
