@@ -8,7 +8,7 @@ from typing import Dict, Optional
 from scripts.core.tokenizer import SimpleTokenizer
 from scripts.core.transformer import TransformerModel, DecoderOnlyTransformer
 from scripts.generation.code_generator import CodeGenerator
-from scripts.optimization.cache import GenerationCache
+from scripts.optimization.cache import GenerationCache, SemanticCache
 from scripts.utils.logger import logging_context
 
 
@@ -170,7 +170,8 @@ class CodeGenerationPipeline:
                  cache_size: int = None,
                  device: str = 'cpu',
                  debug_mode: bool = False,
-                 architecture: str = 'encdec'):
+                 architecture: str = 'encdec',
+                 similarity_threshold: float = 0.7):
         """
         初始化管道
         
@@ -265,6 +266,13 @@ class CodeGenerationPipeline:
         print("\n[Step 4] 创建缓存...")
         self.cache = GenerationCache(max_size=config['cache_size'])
         
+        # 5. 创建语义缓存（L2：n-gram 向量 + 余弦相似度，解决中文误命中问题）
+        print("\n[Step 5] 创建语义缓存...")
+        self.semantic_cache = SemanticCache(
+            max_size=config['cache_size'],
+            similarity_threshold=similarity_threshold
+        )
+        
         # 管道统计
         self.pipeline_stats = {
             'total_requests': 0,
@@ -338,7 +346,12 @@ class CodeGenerationPipeline:
                     print(f"[Pipeline] Step 1: 检查缓存")
                     print(f"{'='*60}")
                 
+                # L1: 精确匹配（MD5）
                 cached_result = self.cache.get(prompt)
+                
+                # L2: 语义匹配（n-gram 向量余弦相似度，仅 L1 未命中时查询）
+                if cached_result is None:
+                    cached_result = self.semantic_cache.get(prompt)
                 
                 if cached_result is not None:
                     # 缓存命中
@@ -394,7 +407,9 @@ class CodeGenerationPipeline:
                     print(f"[Pipeline] Step 5: 缓存结果")
                     print(f"{'='*60}")
                 
+                # 同时写入 L1（精确）与 L2（语义）缓存
                 self.cache.put(prompt, raw_code)
+                self.semantic_cache.put(prompt, raw_code)
             
             # 计算耗时
             result['processing_time'] = time.time() - start_time

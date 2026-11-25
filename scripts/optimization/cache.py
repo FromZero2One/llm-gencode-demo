@@ -32,9 +32,183 @@ Least Recently Used（最近最少使用）是最常用的缓存淘汰策略：
 import sys
 import hashlib
 import time
+import re
 from typing import Optional, Dict, List
 from collections import OrderedDict
 from scripts.utils.logger import logging_context
+
+
+class SemanticCache:
+    """
+    语义缓存 - 基于向量相似度的近似匹配缓存
+
+    ════════════════════════════════════════════════════════════
+    📚 原理：为什么要替代关键词 MD5？
+    ════════════════════════════════════════════════════════════
+
+    旧方案（GenerationCache.get_similar）的缺陷：
+        提取 Java 关键字（public/class/Service...）排序后取 MD5。
+        问题1: 中文自然语言（"创建一个用户服务类"）提取不到任何关键字
+               → 所有中文 prompt 得到相同的空串 MD5 → 必然误命中！
+        问题2: MD5 是雪崩哈希，"UserService" 和 "OrderService" 的
+               语义差一个词，MD5 却完全不同 → 又漏掉了真相似对。
+
+    新方案：字符 n-gram 词袋 + 余弦相似度
+        1. 把 prompt 拆成字符 2-gram 的多重集合
+           "用户服务" → {用户, 户服, 服务}
+           （对中英文都鲁棒，无需分词器，零外部依赖）
+        2. 每个条目存一个归一化向量
+        3. 查询时算余弦相似度，超过阈值即命中
+
+    余弦相似度公式：
+        sim(a, b) = a · b / (||a|| * ||b||)
+        值域 [0, 1]（n-gram 计数非负），1 表示完全相同。
+
+    复杂度：put O(L)，get O(n·L)（n 为缓存条数）。
+            教学规模（n≤几百）完全够用；生产环境应换 ANN 索引
+            （如 FAISS / pgvector），此处注释说明即可。
+    ════════════════════════════════════════════════════════════
+
+    Args:
+        max_size: 最大缓存条数（LRU 淘汰）
+        ngram_size: 字符 n-gram 的 n（2 适合中英混合短文本）
+        similarity_threshold: 命中阈值（0-1）。过高达不到模糊效果，
+                              过低会误命中。0.7 左右适合短 prompt。
+    """
+
+    def __init__(self, max_size: int = 50, ngram_size: int = 2,
+                 similarity_threshold: float = 0.7):
+        self.max_size = max_size
+        self.ngram_size = ngram_size
+        self.similarity_threshold = similarity_threshold
+
+        # prompt_hash -> {'prompt', 'result', 'vector', 'timestamp'}
+        self.cache = OrderedDict()
+        self.stats = {'hits': 0, 'misses': 0, 'evictions': 0,
+                      'semantic_hits': 0, 'exact_hits': 0}
+
+        print(f"[SemanticCache] 初始化语义缓存")
+        print(f"  - 最大容量: {max_size}")
+        print(f"  - n-gram size: {ngram_size}")
+        print(f"  - 相似度阈值: {similarity_threshold}")
+
+    def _tokenize(self, text: str) -> List[str]:
+        """
+        提取字符 n-gram（对中英文统一处理）
+
+        例（n=2）: "public class" → ['pu','ub','bl','li','ic','c ','cl',...]
+                   "用户服务"     → ['用户','户服','服务']
+        """
+        text = text.strip().lower()
+        if len(text) < self.ngram_size:
+            return [text] if text else []
+        return [text[i:i + self.ngram_size]
+                for i in range(len(text) - self.ngram_size + 1)]
+
+    def _vectorize(self, text: str) -> Dict[str, float]:
+        """
+        文本 → 归一化 n-gram 计数向量（稀疏 dict 表示）
+
+        L2 归一化后，两个向量的点积即余弦相似度
+        """
+        vec: Dict[str, float] = {}
+        for gram in self._tokenize(text):
+            vec[gram] = vec.get(gram, 0.0) + 1.0
+        norm = sum(v * v for v in vec.values()) ** 0.5
+        if norm > 0:
+            vec = {k: v / norm for k, v in vec.items()}
+        return vec
+
+    def _cosine(self, a: Dict[str, float], b: Dict[str, float]) -> float:
+        """两个归一化稀疏向量的点积 = 余弦相似度"""
+        if len(a) > len(b):
+            a, b = b, a
+        return sum(v * b.get(k, 0.0) for k, v in a.items())
+
+    def get(self, prompt: str) -> Optional[str]:
+        """
+        查询缓存：先精确匹配（O(1)），再语义匹配（O(n)）
+
+        Returns:
+            命中返回缓存结果；未命中返回 None
+        """
+        prompt_hash = hashlib.md5(prompt.encode('utf-8')).hexdigest()
+
+        # 1. 精确匹配
+        if prompt_hash in self.cache:
+            self.stats['hits'] += 1
+            self.stats['exact_hits'] += 1
+            self.cache.move_to_end(prompt_hash)
+            item = self.cache[prompt_hash]
+            print(f"[SemanticCache] 精确命中: {prompt[:30]}...")
+            return item['result']
+
+        # 2. 语义匹配（余弦相似度）
+        query_vec = self._vectorize(prompt)
+        best_hash, best_sim = None, 0.0
+        for h, item in self.cache.items():
+            sim = self._cosine(query_vec, item['vector'])
+            if sim > best_sim:
+                best_hash, best_sim = h, sim
+
+        if best_sim >= self.similarity_threshold:
+            self.stats['hits'] += 1
+            self.stats['semantic_hits'] += 1
+            self.cache.move_to_end(best_hash)
+            item = self.cache[best_hash]
+            print(f"[SemanticCache] 语义命中 (sim={best_sim:.3f} >= {self.similarity_threshold}): "
+                  f"缓存自 \"{item['prompt'][:30]}...\"")
+            return item['result']
+
+        self.stats['misses'] += 1
+        if self.cache and best_hash is not None:
+            print(f"[SemanticCache] 未命中 (最高相似度 {best_sim:.3f} < {self.similarity_threshold})")
+        else:
+            print(f"[SemanticCache] 未命中 (缓存为空)")
+        return None
+
+    def put(self, prompt: str, result: str):
+        """存入缓存（LRU 淘汰）"""
+        prompt_hash = hashlib.md5(prompt.encode('utf-8')).hexdigest()
+        if prompt_hash in self.cache:
+            self.cache.move_to_end(prompt_hash)
+            return
+
+        if len(self.cache) >= self.max_size:
+            evicted_hash, _ = self.cache.popitem(last=False)
+            self.stats['evictions'] += 1
+            print(f"[SemanticCache] LRU淘汰: {evicted_hash[:8]}...")
+
+        self.cache[prompt_hash] = {
+            'prompt': prompt,
+            'result': result,
+            'vector': self._vectorize(prompt),
+            'timestamp': time.time(),
+        }
+        print(f"[SemanticCache] 存入 ({len(self.cache)}/{self.max_size}): {prompt[:30]}...")
+
+    def clear(self):
+        """清空缓存"""
+        self.cache.clear()
+        self.stats = {'hits': 0, 'misses': 0, 'evictions': 0,
+                      'semantic_hits': 0, 'exact_hits': 0}
+        print("[SemanticCache] 缓存已清空")
+
+    def get_stats(self) -> Dict:
+        """统计信息"""
+        total = self.stats['hits'] + self.stats['misses']
+        hit_rate = (self.stats['hits'] / total * 100) if total > 0 else 0
+        return {
+            'size': len(self.cache),
+            'max_size': self.max_size,
+            'hits': self.stats['hits'],
+            'misses': self.stats['misses'],
+            'exact_hits': self.stats['exact_hits'],
+            'semantic_hits': self.stats['semantic_hits'],
+            'evictions': self.stats['evictions'],
+            'hit_rate': f"{hit_rate:.2f}%",
+            'total_requests': total,
+        }
 
 
 class GenerationCache:
@@ -237,7 +411,7 @@ class GenerationCache:
                 self.stats['hits'] += 1
                 self.cache.move_to_end(cached_hash)
                 
-                print(f"[Cache] ✓ Similar cache HIT (semantic match)")
+                print(f"[Cache] [SIMILAR-HIT] Similar cache HIT (semantic match)")
                 print(f"  - Original prompt: {cached_item['prompt'][:50]}...")
                 
                 return cached_item['result']
@@ -416,3 +590,38 @@ if __name__ == '__main__':
     for entry in entries:
         print(f"  - Hash: {entry['hash']}, Preview: {entry['prompt_preview']}, "
               f"Access: {entry['access_count']}")
+    
+    # ==================== 测试4: SemanticCache（向量语义缓存） ====================
+    print("\n" + "="*60)
+    print("测试4: SemanticCache (n-gram 向量语义缓存)")
+    print("="*60)
+    
+    from scripts.optimization.cache import SemanticCache
+    
+    scache = SemanticCache(max_size=10, similarity_threshold=0.7)
+    
+    # 中文场景（旧方案的关键词 MD5 在此必然误命中）
+    scache.put("创建一个用户服务类", "class UserService { ... }")
+    
+    print("\n[场景1] 中文相似请求（应语义命中）:")
+    r1 = scache.get("创建一个用户服务类")           # 精确命中
+    r2 = scache.get("创建一个用户服务类，包含增删改查")  # 语义命中
+    print(f"  精确查询命中: {r1 is not None}")
+    print(f"  相似查询命中: {r2 is not None}")
+    
+    print("\n[场景2] 不相关请求（应未命中，不误报）:")
+    r3 = scache.get("def fibonacci(n): return n if n<2 else fib(n-1)+fib(n-2)")
+    print(f"  完全不同的请求命中: {r3 is not None} (应为 False)")
+    
+    print("\n[场景3] 英文代码请求:")
+    scache.put("public class UserService {", "Result B")
+    r4 = scache.get("public class UserService extends Base {")  # 应语义命中
+    print(f"  英文相似请求命中: {r4 is not None}")
+    
+    stats = scache.get_stats()
+    print(f"\n统计: {stats}")
+    
+    assert r1 is not None, "精确查询应命中"
+    assert r2 is not None, "相似查询应语义命中"
+    assert r3 is None, "不相关请求不应命中（旧方案会误命中！）"
+    print("\n[OK] SemanticCache 验证通过：中文语义命中、不相关不误报")
