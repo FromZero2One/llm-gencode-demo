@@ -91,7 +91,8 @@ class TransformerEncoderLayer(nn.Module):
     
     def __init__(self, d_model: int = 128, nhead: int = 8,
                  dim_feedforward: int = 512, dropout: float = 0.1,
-                 debug_mode: bool = False, norm_type: str = 'layernorm'):
+                 debug_mode: bool = False, norm_type: str = 'layernorm',
+                 use_rope: bool = False, max_seq_length: int = 512):
         """
         初始化Encoder层
         
@@ -114,6 +115,14 @@ class TransformerEncoderLayer(nn.Module):
             
             debug_mode (bool): 是否启用调试模式，默认为False。
                               启用后会输出详细的形状信息和中间结果。
+            
+            norm_type (str): 归一化类型，'layernorm'(默认) | 'rmsnorm'
+            
+            use_rope (bool): 是否使用RoPE旋转位置编码，默认False。
+                            启用后位置信息由Attention内部旋转Q/K注入，
+                            模型外部不应再叠加Sinusoidal PE。
+            
+            max_seq_length (int): RoPE预计算的最大位置数。
         
         Note:
             - d_model必须能被nhead整除，否则MultiHeadAttention会报错
@@ -128,8 +137,11 @@ class TransformerEncoderLayer(nn.Module):
         print(f"  - nhead: {nhead}")
         print(f"  - dim_feedforward: {dim_feedforward}")
         
-        # Self-Attention
-        self.self_attn = MultiHeadAttention(d_model, nhead, dropout, debug_mode=debug_mode)
+        # Self-Attention（use_rope=True时内部启用RoPE旋转Q/K）
+        self.self_attn = MultiHeadAttention(d_model, nhead, dropout,
+                                            debug_mode=debug_mode,
+                                            use_rope=use_rope,
+                                            max_seq_length=max_seq_length)
         
         # Feed Forward Network (两层全连接)
         self.ffn = nn.Sequential(
@@ -252,7 +264,8 @@ class TransformerDecoderLayer(nn.Module):
     
     def __init__(self, d_model: int = 128, nhead: int = 8,
                  dim_feedforward: int = 512, dropout: float = 0.1,
-                 debug_mode: bool = False, norm_type: str = 'layernorm'):
+                 debug_mode: bool = False, norm_type: str = 'layernorm',
+                 use_rope: bool = False, max_seq_length: int = 512):
         """
         初始化Decoder层
         
@@ -268,6 +281,15 @@ class TransformerDecoderLayer(nn.Module):
             dropout (float): Dropout概率，默认为0.1。
             
             debug_mode (bool): 是否启用调试模式，默认为False。
+            
+            norm_type (str): 归一化类型，'layernorm'(默认) | 'rmsnorm'
+            
+            use_rope (bool): 是否使用RoPE旋转位置编码，默认False。
+                            启用后 Self-Attention 的 Q/K 会被旋转；
+                            Cross-Attention 的 K/V 来自 Encoder（也已用相同
+                            的 RoPE 旋转），无需特殊处理。
+            
+            max_seq_length (int): RoPE预计算的最大位置数。
         
         Note:
             - Decoder比Encoder多一个LayerNorm（共3个），因为有3个子层
@@ -280,10 +302,16 @@ class TransformerDecoderLayer(nn.Module):
         print(f"[DecoderLayer] 初始化 (debug_mode={debug_mode})")
         
         # Masked Self-Attention（解码时只能看到之前的token）
-        self.self_attn = MultiHeadAttention(d_model, nhead, dropout, debug_mode=debug_mode)
+        self.self_attn = MultiHeadAttention(d_model, nhead, dropout,
+                                            debug_mode=debug_mode,
+                                            use_rope=use_rope,
+                                            max_seq_length=max_seq_length)
         
-        # Cross-Attention（关注Encoder的输出）
-        self.cross_attn = MultiHeadAttention(d_model, nhead, dropout, debug_mode=debug_mode)
+        # Cross-Attention（关注Encoder的输出；Encoder输出已被同样的RoPE旋转）
+        self.cross_attn = MultiHeadAttention(d_model, nhead, dropout,
+                                             debug_mode=debug_mode,
+                                             use_rope=use_rope,
+                                             max_seq_length=max_seq_length)
         
         # Feed Forward Network
         self.ffn = nn.Sequential(
@@ -449,7 +477,8 @@ class TransformerModel(nn.Module):
                  nhead: int = 8, num_encoder_layers: int = 2,
                  num_decoder_layers: int = 2, dim_feedforward: int = 512,
                  dropout: float = 0.1, max_seq_length: int = 128,
-                 debug_mode: bool = False, norm_type: str = 'layernorm'):
+                 debug_mode: bool = False, norm_type: str = 'layernorm',
+                 position_embedding_type: str = 'sinusoidal'):
         """
         初始化完整的Transformer模型
         
@@ -513,6 +542,7 @@ class TransformerModel(nn.Module):
         print(f"  - FeedForward维度: {dim_feedforward}")
         print(f"  - 最大序列长度: {max_seq_length}")
         print(f"  - 归一化类型: {norm_type}")
+        print(f"  - 位置编码: {position_embedding_type}")
         
         self.d_model = d_model
         self.max_seq_length = max_seq_length
@@ -520,23 +550,39 @@ class TransformerModel(nn.Module):
         self.d_k = d_model // nhead           # KV Cache 需要：每个头的维度
         self.num_decoder_layers = num_decoder_layers  # KV Cache 需要：Decoder 层数
         
+        # 位置编码类型:
+        # - 'sinusoidal': 传统正弦/余弦绝对位置编码（加到 embedding 上）
+        # - 'rope':       旋转位置编码（在 Attention 内部旋转 Q/K，不再叠加 Sinusoidal PE）
+        if position_embedding_type not in ('sinusoidal', 'rope'):
+            raise ValueError(
+                f"未知位置编码类型: '{position_embedding_type}', "
+                f"可选: 'sinusoidal' | 'rope'"
+            )
+        self.position_embedding_type = position_embedding_type
+        self.use_rope = position_embedding_type == 'rope'
+        
         # Embedding层：将token ID转换为向量
         self.embedding = nn.Embedding(vocab_size, d_model)
         
-        # 位置编码
+        # 位置编码（sinusoidal 模式下使用；rope 模式下位置信息由 Attention 内部的
+        # RoPE 注入，embedding 只做缩放，不再叠加 PE）
         self.pos_encoder = PositionalEncoding(d_model, dropout, max_seq_length)
         
         # Encoder layers
         self.encoder_layers = nn.ModuleList([
             TransformerEncoderLayer(d_model, nhead, dim_feedforward, dropout,
-                                    debug_mode=debug_mode, norm_type=norm_type)
+                                    debug_mode=debug_mode, norm_type=norm_type,
+                                    use_rope=self.use_rope,
+                                    max_seq_length=max_seq_length)
             for _ in range(num_encoder_layers)
         ])
         
         # Decoder layers
         self.decoder_layers = nn.ModuleList([
             TransformerDecoderLayer(d_model, nhead, dim_feedforward, dropout,
-                                    debug_mode=debug_mode, norm_type=norm_type)
+                                    debug_mode=debug_mode, norm_type=norm_type,
+                                    use_rope=self.use_rope,
+                                    max_seq_length=max_seq_length)
             for _ in range(num_decoder_layers)
         ])
         
@@ -687,7 +733,11 @@ class TransformerModel(nn.Module):
             print(f"  - After embedding: {src_embedded.shape}")
         
         # 2. 位置编码
-        src_encoded = self.pos_encoder(src_embedded)
+        # 位置编码：rope 模式下位置信息由 Attention 内部 RoPE 注入，这里只做 dropout
+        if self.use_rope:
+            src_encoded = self.pos_encoder.dropout(src_embedded)
+        else:
+            src_encoded = self.pos_encoder(src_embedded)
         if self.debug_mode:
             print(f"  - After positional encoding: {src_encoded.shape}")
         
@@ -777,7 +827,11 @@ class TransformerModel(nn.Module):
             print(f"  - After embedding: {tgt_embedded.shape}")
         
         # 2. 位置编码
-        tgt_encoded = self.pos_encoder(tgt_embedded)
+        # 位置编码：rope 模式下位置信息由 Attention 内部 RoPE 注入，这里只做 dropout
+        if self.use_rope:
+            tgt_encoded = self.pos_encoder.dropout(tgt_embedded)
+        else:
+            tgt_encoded = self.pos_encoder(tgt_embedded)
         if self.debug_mode:
             print(f"  - After positional encoding: {tgt_encoded.shape}")
         
@@ -958,13 +1012,20 @@ class TransformerModel(nn.Module):
         # 长度为 1 的因果掩码：单 token 可见自身及所有历史缓存位置（广播到 [1, p+1]）
         tgt_mask = self.generate_square_subsequent_mask(1).to(generated.device)
         
+        # 当前 token 的绝对位置 = 缓存中已有的长度
+        position = kv_cache_manager.get_current_length()
+        
         tgt_embedded = self.embedding(last_token) * math.sqrt(self.d_model)
         
-        # 位置编码修正：单 token 输入时 pos_encoder 会加 PE(0)，
-        # 必须手动取该 token 真实位置 t 的 PE(t)
-        position = kv_cache_manager.get_current_length()
-        pe = self.pos_encoder.pe[:, position:position + 1, :]  # [1, 1, d_model]
-        tgt_encoded = tgt_embedded + pe.to(tgt_embedded.dtype)
+        if self.use_rope:
+            # RoPE 模式：位置信息由 Attention 内部旋转注入，embedding 只做 dropout
+            tgt_encoded = self.pos_encoder.dropout(tgt_embedded)
+        else:
+            # Sinusoidal 模式：单 token 输入时 pos_encoder 会加 PE(0)，
+            # 必须手动取该 token 真实位置 t 的 PE(t)
+            position = kv_cache_manager.get_current_length()
+            pe = self.pos_encoder.pe[:, position:position + 1, :]  # [1, 1, d_model]
+            tgt_encoded = tgt_embedded + pe.to(tgt_embedded.dtype)
         
         # 先快照所有层的历史 K/V，再逐层计算+更新
         # （current_length 在各层间共享，若边读边写会导致后面的层读到错误长度）
@@ -1179,3 +1240,66 @@ if __name__ == '__main__':
         logits_rms, _, _ = model_rms(src_rms, tgt_rms)
         print(f"  RMSNorm 模型前向输出 shape: {tuple(logits_rms.shape)}")
         print(f"  [OK] RMSNorm 模型测试通过")
+        
+        # ==================== RoPE 验证 ====================
+        print("\n" + "="*60)
+        print("RoPE 验证 (相对位置性质)")
+        print("="*60)
+        
+        from scripts.core.attention import RoPEPositionalEncoding, apply_rotary_pos_emb
+        
+        rope = RoPEPositionalEncoding(head_dim=16, max_len=64)
+        
+        # 验证1：RoPE 不改变向量模长（旋转是正交变换）
+        x = torch.randn(1, 1, 8, 16)
+        cos, sin = rope(8)
+        x_rot, _ = apply_rotary_pos_emb(x, x, cos, sin)
+        norm_before = x.norm(dim=-1).mean().item()
+        norm_after = x_rot.norm(dim=-1).mean().item()
+        print(f"  旋转前模长: {norm_before:.4f}, 旋转后模长: {norm_after:.4f} (应相等)")
+        assert abs(norm_before - norm_after) < 1e-4, "RoPE应保持模长不变"
+        
+        # 验证2：相对位置不变性 —— 平移序列后两两内积不变
+        # 构造两个向量分别位于位置 m, n，旋转后内积只依赖 (n-m)
+        from scripts.core.attention import _rotate_half
+        
+        def rot_at(v: torch.Tensor, pos: int) -> torch.Tensor:
+            """把单个向量旋转到绝对位置 pos（v: [1,1,1,head_dim]）"""
+            cos_p = rope.cos_cached[pos:pos + 1].repeat(1, 2)  # [1, d_k]（复制拼接成完整表）
+            sin_p = rope.sin_cached[pos:pos + 1].repeat(1, 2)
+            v4 = v.view(1, 1, 1, -1)
+            return v4 * cos_p.view(1, 1, 1, -1) + _rotate_half(v4) * sin_p.view(1, 1, 1, -1)
+        
+        q1 = torch.randn(1, 1, 1, 16)
+        k1 = torch.randn(1, 1, 1, 16)
+        def pair_dot(pos_q: int, pos_k: int) -> float:
+            return (rot_at(q1, pos_q) * rot_at(k1, pos_k)).sum().item()
+        
+        # 位置 (2,5) 与平移后的 (6,9)：相对距离都是 3，内积应相等
+        dot_a = pair_dot(2, 5)
+        dot_b = pair_dot(6, 9)
+        print(f"  内积@[m=2,n=5]: {dot_a:.6f}")
+        print(f"  内积@[m=6,n=9]: {dot_b:.6f} (相对距离均为3，应相等)")
+        assert abs(dot_a - dot_b) < 1e-4, "RoPE内积应只依赖相对位置"
+        print(f"  [OK] RoPE 相对位置性质验证通过")
+        
+        # 验证3：RoPE 模式模型端到端 + KV Cache 推理
+        model_rope = TransformerModel(vocab_size=1000, d_model=128, nhead=8,
+                                      num_encoder_layers=2, num_decoder_layers=2,
+                                      position_embedding_type='rope')
+        src_rope = torch.randint(0, 1000, (1, 20))
+        tgt_rope = torch.randint(0, 1000, (1, 15))
+        logits_rope, _, _ = model_rope(src_rope, tgt_rope)
+        print(f"  RoPE 模型训练前向输出 shape: {tuple(logits_rope.shape)}")
+        
+        model_rope.clear_cache()
+        from scripts.optimization.kv_cache import KVCacheManager as KVMgr
+        kv_rope = KVMgr(num_layers=2, batch_size=1, num_heads=8,
+                        max_seq_len=64, head_dim=16, device=torch.device('cpu'))
+        kv_rope.initialize()
+        gen = torch.tensor([[2]])  # BOS
+        for _ in range(5):
+            logits_rope, kv_rope = model_rope.generate_step(src_rope, gen, kv_cache_manager=kv_rope)
+            gen = torch.cat([gen, torch.argmax(logits_rope, dim=-1, keepdim=True)], dim=1)
+        print(f"  RoPE 模型 KV Cache 推理 5 步成功, 缓存长度: {kv_rope.get_current_length()}")
+        print(f"  [OK] RoPE 模型测试通过")

@@ -74,7 +74,9 @@ class MultiHeadAttention(nn.Module):
       - ...
     """
     
-    def __init__(self, d_model: int = 128, nhead: int = 8, dropout: float = 0.1, debug_mode: bool = False):
+    def __init__(self, d_model: int = 128, nhead: int = 8, dropout: float = 0.1,
+                 debug_mode: bool = False, use_rope: bool = False,
+                 rope_theta: float = 10000.0, max_seq_length: int = 512):
         """
         初始化多头注意力机制
         
@@ -116,6 +118,15 @@ class MultiHeadAttention(nn.Module):
         self.nhead = nhead
         self.d_k = d_model // nhead  # 每个头的维度
         self.debug_mode = debug_mode
+        
+        # RoPE 旋转位置编码（可选）
+        # 启用后：Q/K 在进入注意力计算前被旋转，位置信息内积化为相对位置
+        # 注意：启用 RoPE 后不应再在外部叠加 Sinusoidal PE（避免重复注入位置信息）
+        self.use_rope = use_rope
+        if use_rope:
+            self.rope = RoPEPositionalEncoding(
+                head_dim=self.d_k, max_len=max_seq_length, theta=rope_theta
+            )
         
         if self.debug_mode:
             logger.info(f"初始化多头注意力机制")
@@ -255,6 +266,18 @@ class MultiHeadAttention(nn.Module):
         Q = self.W_q(query).view(batch_size, seq_len_q, self.nhead, self.d_k).transpose(1, 2)
         K = self.W_k(key).view(batch_size, seq_len_k, self.nhead, self.d_k).transpose(1, 2)
         V = self.W_v(value).view(batch_size, seq_len_k, self.nhead, self.d_k).transpose(1, 2)
+        
+        # RoPE：对 Q/K 施加旋转位置编码（必须在拼接历史缓存之前，
+        # 这样缓存中存的就是已旋转的 K，绝对位置信息随之保留）
+        if self.use_rope:
+            position_offset = 0
+            if past_key_value is not None:
+                # KV Cache 场景：历史 K 已旋转完毕（绝对位置 0..p-1），
+                # 新 Q/K 只需按各自的绝对位置旋转
+                position_offset = past_key_value[0].size(2)
+            max_len_needed = position_offset + max(seq_len_q, seq_len_k)
+            cos, sin = self.rope(max_len_needed, device=Q.device)
+            Q, K = apply_rotary_pos_emb(Q, K, cos, sin, position_offset=position_offset)
         
         # 新增：拼接历史 K/V（KV Cache 核心逻辑）
         if past_key_value is not None:
@@ -438,6 +461,154 @@ class MultiHeadAttention(nn.Module):
                     other_token = token_names[idx]
                     weight = attn_to_others[idx]
                     print(f"  {rank}. '{other_token}' (weight: {weight:.4f})")
+
+
+class RoPEPositionalEncoding(nn.Module):
+    """
+    RoPE 旋转位置编码（Rotary Position Embedding）
+
+    ════════════════════════════════════════════════════════════
+    📚 数学原理：为什么旋转能编码位置？
+    ════════════════════════════════════════════════════════════
+
+    核心思想（Su et al., 2021 RoFormer）：
+    将位置信息编码为 Q/K 向量在二维平面上的旋转角度。
+    把 d_k 维向量看成 d_k/2 个二维子平面，第 i 个子平面旋转角度：
+
+        θ_m^(i) = m / 10000^(2i/d_k)      m 是 token 的绝对位置
+
+    对位置 m 的 q 向量施加旋转 R(mθ) 后，两个位置 m、n 的内积为：
+
+        <R(mθ)q, R(nθ)k> = <q, R((n-m)θ)k>
+
+    ★ 内积只依赖于相对位置 (n-m)，与绝对位置无关！
+      这就是 RoPE 是"相对位置编码"的数学本质。
+
+    与 Sinusoidal PE 的对比：
+    ┌────────────────┬──────────────────┬────────────────────┐
+    │                │ Sinusoidal (本项目原版) │ RoPE (minimind/Qwen3) │
+    ├────────────────┼──────────────────┼────────────────────┤
+    │ 注入方式        │ 加到 embedding 上  │ 旋转 Q/K 向量       │
+    │ 位置性质        │ 绝对位置           │ 内积天然是相对位置   │
+    │ 作用对象        │ V 也被间接影响     │ 只旋转 Q/K，V 不动  │
+    │ 长度外推        │ 差                │ 好（可配 YaRN 扩展）│
+    │ 额外参数        │ 无                │ 无                  │
+    └────────────────┴──────────────────┴────────────────────┘
+
+    本类只负责预计算 cos/sin 表；实际旋转在 MultiHeadAttention
+    内部通过 apply_rotary_pos_emb 完成（只作用于 Q/K）。
+    ════════════════════════════════════════════════════════════
+
+    Args:
+        head_dim (int): 每个注意力头的维度（必须为偶数，因为按二维子平面配对）
+        max_len (int): 预计算的最大位置数
+        theta (float): 频率基数（minimind/Qwen3 用 1e6，原论文用 1e4）
+
+    Example:
+        >>> rope = RoPEPositionalEncoding(head_dim=16, max_len=128)
+        >>> cos, sin = rope()          # [max_len, head_dim/2] 各一张表
+        >>> cos.shape, sin.shape
+        (torch.Size([128, 8]), torch.Size([128, 8]))
+    """
+
+    def __init__(self, head_dim: int, max_len: int = 512, theta: float = 10000.0):
+        super().__init__()
+        assert head_dim % 2 == 0, "RoPE要求head_dim必须为偶数(按二维子平面配对旋转)"
+
+        self.head_dim = head_dim
+        self.max_len = max_len
+
+        # 频率: inv_freq[i] = 1 / theta^(2i/head_dim), i = 0..head_dim/2-1
+        # 低维对应高频（快旋转，捕捉近距离关系），
+        # 高维对应低频（慢旋转，捕捉远距离关系）
+        inv_freq = 1.0 / (theta ** (torch.arange(0, head_dim, 2).float() / head_dim))
+
+        # 位置: [max_len, 1] × 频率: [head_dim/2] → 角度表 θ_m^(i): [max_len, head_dim/2]
+        positions = torch.arange(max_len, dtype=torch.float).unsqueeze(1)
+        freqs = positions * inv_freq.unsqueeze(0)
+
+        # 注册为buffer（不参与训练，但会随模型 save/load）
+        self.register_buffer('cos_cached', freqs.cos(), persistent=False)
+        self.register_buffer('sin_cached', freqs.sin(), persistent=False)
+
+        print(f"[RoPEPositionalEncoding] 初始化")
+        print(f"  - head_dim: {head_dim}")
+        print(f"  - max_len: {max_len}")
+        print(f"  - theta: {theta}")
+
+    def forward(self, seq_len: int, device: torch.device = None):
+        """
+        取前 seq_len 个位置的 cos/sin 表
+
+        Returns:
+            (cos, sin): 各为 [seq_len, head_dim/2]
+        """
+        return (
+            self.cos_cached[:seq_len].to(device),
+            self.sin_cached[:seq_len].to(device),
+        )
+
+
+def apply_rotary_pos_emb(q: torch.Tensor, k: torch.Tensor, cos: torch.Tensor,
+                         sin: torch.Tensor, position_offset: int = 0):
+    """
+    将旋转位置编码应用到 Q/K（RoPE 核心运算）
+
+    旋转公式（对每个二维子平面 (x1, x2)）：
+        x1' = x1 * cosθ - x2 * sinθ
+        x2' = x1 * sinθ + x2 * cosθ
+
+    用向量化实现等价于：
+        q_rot = q * cos + rotate_half(q) * sin
+    其中 rotate_half 将向量后半段取负与前半段交换：
+        rotate_half([x1, x2, x3, x4]) = [-x2, x1, -x4, x3]
+
+    Args:
+        q: Query [batch, nhead, seq_len_q, head_dim]
+        k: Key   [batch, nhead, seq_len_k, head_dim]（可与q的seq_len不同，如KV Cache场景）
+        cos/sin: [max(seq_len), head_dim/2] 角度表
+        position_offset: Q 的起始绝对位置（KV Cache 单步生成时，Q 只有1个token
+                         但它的绝对位置是 t = 已缓存长度）
+
+    Returns:
+        (q_rot, k_rot): 旋转后的 Q/K，形状不变
+    """
+    seq_len_q = q.size(2)
+    seq_len_k = k.size(2)
+
+    # K 侧取绝对位置 [0, seq_len_k)，Q 侧取 [position_offset, position_offset + seq_len_q)
+    # （KV Cache 单步生成时：K 全部来自缓存，绝对位置 0..p-1；Q 只有 1 个新 token，绝对位置 p）
+    cos_k = cos[:seq_len_k]
+    sin_k = sin[:seq_len_k]
+    cos_q = cos[position_offset:position_offset + seq_len_q]
+    sin_q = sin[position_offset:position_offset + seq_len_q]
+    
+    # 关键：把 [seq, d_k/2] 的角度表复制拼接成 [seq, d_k]
+    # 因为 rotate_half 的配对方式是 (前半段 x1..x8 与后半段 x9..x16)，
+    # 两半需要相同的角度 → cos_full = [cos, cos]
+    # （与 minimind 的 torch.cat((freqs, freqs), dim=-1) 完全一致）
+    def _dup(t):
+        return torch.cat([t, t], dim=-1)
+    cos_q, sin_q, cos_k, sin_k = _dup(cos_q), _dup(sin_q), _dup(cos_k), _dup(sin_k)
+
+    # 扩维以匹配 Q/K 的4维形状: [seq, d_k/2] → [1, 1, seq, d_k/2]
+    cos_q, sin_q = cos_q.unsqueeze(0).unsqueeze(0), sin_q.unsqueeze(0).unsqueeze(0)
+    cos_k, sin_k = cos_k.unsqueeze(0).unsqueeze(0), sin_k.unsqueeze(0).unsqueeze(0)
+
+    # Q、K 分别旋转
+    q_rot = q * cos_q + _rotate_half(q) * sin_q
+    k_rot = k * cos_k + _rotate_half(k) * sin_k
+    return q_rot, k_rot
+
+
+def _rotate_half(x: torch.Tensor) -> torch.Tensor:
+    """
+    rotate_half: 将最后维对半拆开，后半段取负放前面
+    [x1, x2, x3, x4] → [-x2, x1, -x4, x3]
+    与 cos/sin 组合后等价于每个二维子平面的复数旋转
+    """
+    x1, x2 = x.chunk(2, dim=-1)
+    return torch.cat((-x2, x1), dim=-1)
 
 
 class PositionalEncoding(nn.Module):
