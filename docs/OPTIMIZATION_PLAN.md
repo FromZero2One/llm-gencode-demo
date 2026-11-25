@@ -52,6 +52,19 @@ P1–P10 已全部完成并提交。以下为当时主动排除或做了简化�
 | vLLM / ollama / llama.cpp 部署导出 | 引入外部重依赖，破坏零依赖原则 |
 | 真实规模指令数据 | demo 仅 400 条重复语料，真实效果需更大更多样的 SFT/DPO 数据 |
 
+### 已知测试盲区（2026-11 收官审计，后期开发前先补）
+
+P7–P10 的验证大多为一次性脚本跑通，以下项**未充分验证**，动相关代码前建议先补验证：
+
+| # | 盲区 | 风险 | 补验证做法 |
+|---|------|------|-----------|
+| 1 | `serve_openai_api.py` 的 `--chat_template` 多轮链路只做了语法检查，未起服务实测 | API 返回的 prompt 格式可能错，多轮历史可能没进模板 | 起服务后用 curl/requests 发带历史的 messages 实测；顺带补 `messages_to_prompt` 单元测试 |
+| 2 | GQA / SwiGLU / SDPA / DPO / LoRA 验证均为一次性脚本，未固化进 `test_all.py` | 改 `attention.py`/`transformer.py` 时回归只能兜住"SDPA 权重为 None"，架构回归靠人工记忆 | 把下列断言固化为测试：GQA n_kv_heads=nhead 等价 MHA、SDPA 与手写输出差 <1e-5、LoRA merge 前后输出一致、DPO margin 训练后 >0 |
+| 3 | bug 修复（调度器 clamp、PE 跳过加载）只验证了正确路径，无负路径回归用例 | 将来重构可能悄悄退化回老 bug | 用例：调度器步数超 total_steps 2 倍后 lr 仍 >= min_lr；checkpoint 的 pe 形状不一致时加载不报错 |
+| 4 | SFT/LoRA demo 生成质量弱（输出 `.println("invalid")` 类片段） | 数据问题非代码 bug：SFT 语料仅 400 条重复样本 | 换更大更多样的指令数据重训；代码侧无需修改 |
+
+> 注：P1–P5 及 P6 的既有测试（`test_all.py` 8 模块 + 各文件 `__main__` 自验证区）均已全绿；#2 的"SDPA 权重为 None"断言已固化进 `test_all.py`。
+
 ### P6–P10 详细方案（对标 minimind，2026-11 制定）
 
 > 目标：从"理解 LLM 原理的教学项目"升级为"**能从零练出一个会对话的小模型**"的完整项目。
