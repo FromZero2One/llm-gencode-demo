@@ -151,6 +151,7 @@ class CodeGenerator:
         self.device = device
         self.enable_post_process = enable_post_process
         self.post_processor = SimplePostProcessor() if enable_post_process else None
+        self.kv_cache_manager = None  # KV Cache 管理器，跨步复用
         
         # 设置为评估模式
         self.model.eval()
@@ -214,10 +215,11 @@ class CodeGenerator:
         for step in range(max_length):
             with torch.no_grad():
                 # 前向传播获取logits
-                logits = self.model.generate_step(
+                logits, self.kv_cache_manager = self.model.generate_step(
                     prompt_tensor, 
                     current_sequence,
-                    prompt_mask_tensor
+                    prompt_mask_tensor,
+                    kv_cache_manager=self.kv_cache_manager
                 )
                 
                 # Temperature采样(内嵌逻辑,无需策略对象)

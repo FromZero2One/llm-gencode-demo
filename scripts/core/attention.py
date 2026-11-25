@@ -138,7 +138,9 @@ class MultiHeadAttention(nn.Module):
         self.attention_weights = None
     
     def forward(self, query: torch.Tensor, key: torch.Tensor, value: torch.Tensor, 
-                mask: Optional[torch.Tensor] = None) -> Tuple[torch.Tensor, torch.Tensor]:
+                mask: Optional[torch.Tensor] = None, 
+                past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None
+                ) -> Tuple[torch.Tensor, torch.Tensor, Optional[Tuple[torch.Tensor, torch.Tensor]]]:
         """
         前向传播 - Multi-Head Attention的核心计算流程
         
@@ -253,6 +255,12 @@ class MultiHeadAttention(nn.Module):
         Q = self.W_q(query).view(batch_size, seq_len_q, self.nhead, self.d_k).transpose(1, 2)
         K = self.W_k(key).view(batch_size, seq_len_k, self.nhead, self.d_k).transpose(1, 2)
         V = self.W_v(value).view(batch_size, seq_len_k, self.nhead, self.d_k).transpose(1, 2)
+        
+        # 新增：拼接历史 K/V（KV Cache 核心逻辑）
+        if past_key_value is not None:
+            past_k, past_v = past_key_value
+            K = torch.cat([past_k, K], dim=2)  # [batch, nhead, past_len + seq_len_q, d_k]
+            V = torch.cat([past_v, V], dim=2)
         
         if self.debug_mode:
             logger.debug(f"  - Q/K/V shape after split: {Q.shape}")
@@ -391,7 +399,8 @@ class MultiHeadAttention(nn.Module):
         if self.debug_mode:
             logger.debug(f"  - Output shape: {output.shape}")
         
-        return output, attention_weights
+        present_kv = (K, V)  # 当前层的 K/V，供下一步生成缓存
+        return output, attention_weights, present_kv
     
     def explain_attention(self, token_names: list, head_idx: int = 0):
         """

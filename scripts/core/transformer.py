@@ -141,7 +141,7 @@ class TransformerEncoderLayer(nn.Module):
             print(f"  - Input shape: {src.shape}")
         
         # 1. Self-Attention + Residual + LayerNorm
-        attn_output, attn_weights = self.self_attn(src, src, src, src_mask)
+        attn_output, attn_weights, _ = self.self_attn(src, src, src, src_mask)
         src = src + self.dropout(attn_output)  # Residual connection
         src = self.norm1(src)  # Layer normalization
         
@@ -238,7 +238,8 @@ class TransformerDecoderLayer(nn.Module):
         self.dropout = nn.Dropout(dropout)
     
     def forward(self, tgt: torch.Tensor, memory: torch.Tensor,
-                tgt_mask: torch.Tensor = None, memory_mask: torch.Tensor = None):
+                tgt_mask: torch.Tensor = None, memory_mask: torch.Tensor = None,
+                past_key_value: Optional[Tuple[torch.Tensor, torch.Tensor]] = None):
         """
         Decoder层的前向传播
         
@@ -294,12 +295,14 @@ class TransformerDecoderLayer(nn.Module):
             print(f"  - Memory shape: {memory.shape}")
         
         # 1. Masked Self-Attention
-        self_attn_output, _ = self.self_attn(tgt, tgt, tgt, tgt_mask)
+        self_attn_output, _, present_self_kv = self.self_attn(
+            tgt, tgt, tgt, tgt_mask, past_key_value=past_key_value
+        )
         tgt = tgt + self.dropout(self_attn_output)
         tgt = self.norm1(tgt)
         
         # 2. Cross-Attention（关注Encoder输出）
-        cross_attn_output, cross_attn_weights = self.cross_attn(
+        cross_attn_output, cross_attn_weights, _ = self.cross_attn(
             tgt, memory, memory, memory_mask
         )
         tgt = tgt + self.dropout(cross_attn_output)
@@ -313,7 +316,7 @@ class TransformerDecoderLayer(nn.Module):
         if self.debug_mode:
             print(f"  - Output shape: {tgt.shape}")
         
-        return tgt, cross_attn_weights
+        return tgt, cross_attn_weights, present_self_kv
 
 
 class TransformerModel(nn.Module):
@@ -440,6 +443,9 @@ class TransformerModel(nn.Module):
         
         self.d_model = d_model
         self.max_seq_length = max_seq_length
+        self.nhead = nhead                    # KV Cache 需要：注意力头数
+        self.d_k = d_model // nhead           # KV Cache 需要：每个头的维度
+        self.num_decoder_layers = num_decoder_layers  # KV Cache 需要：Decoder 层数
         
         # Embedding层：将token ID转换为向量
         self.embedding = nn.Embedding(vocab_size, d_model)
@@ -707,7 +713,7 @@ class TransformerModel(nn.Module):
         for i, layer in enumerate(self.decoder_layers):
             if self.debug_mode:
                 print(f"\n  --- Decoder Layer {i+1} ---")
-            output, attn_weights = layer(output, memory, tgt_mask, memory_mask)
+            output, attn_weights, _ = layer(output, memory, tgt_mask, memory_mask)
             decoder_attn_weights.append(attn_weights)
         
         if self.debug_mode:
@@ -789,7 +795,9 @@ class TransformerModel(nn.Module):
         return logits, encoder_weights, decoder_weights
     
     def generate_step(self, src: torch.Tensor, generated: torch.Tensor,
-                      src_mask: torch.Tensor = None):
+                      src_mask: torch.Tensor = None,
+                      kv_cache_manager=None,
+                      use_cache: bool = True):
         """
         单步生成（推理时使用）
         
@@ -840,26 +848,74 @@ class TransformerModel(nn.Module):
             - 需要清除缓存才能开始新的生成任务（调用 clear_cache()）
             - 可以使用不同的采样策略（greedy、top-k、top-p等）来选择next_token
         """
-        # Encode（只需要做一次）
+        # Encode（只需要做一次，缓存 memory）
         if not hasattr(self, '_cached_memory'):
             self._cached_memory, _ = self.encode(src, src_mask)
         
         memory = self._cached_memory
         
-        # 创建因果掩码
-        tgt_seq_len = generated.size(1)
-        tgt_mask = self.generate_square_subsequent_mask(tgt_seq_len).to(generated.device)
+        # ========== 无缓存路径（对比基准）：整段序列喂给 Decoder 重算所有位置 ==========
+        if not use_cache:
+            tgt_seq_len = generated.size(1)
+            tgt_mask_full = self.generate_square_subsequent_mask(tgt_seq_len).to(generated.device)
+            output, _ = self.decode(generated, memory, tgt_mask_full)
+            logits = self.output_projection(output[:, -1, :])
+            return logits, None
         
-        # Decode
-        output, _ = self.decode(generated, memory, tgt_mask)
+        # ========== KV Cache 路径 ==========
+        # 如果没有传入 kv_cache_manager，创建一个临时的（兼容旧调用，但不会跨步复用）
+        if kv_cache_manager is None:
+            from scripts.optimization.kv_cache import KVCacheManager
+            device = generated.device
+            kv_cache_manager = KVCacheManager(
+                num_layers=self.num_decoder_layers,
+                batch_size=generated.size(0),
+                num_heads=self.nhead,
+                max_seq_len=self.max_seq_length,
+                head_dim=self.d_k,
+                device=device
+            )
+            kv_cache_manager.initialize()
         
-        # 只取最后一个位置的输出
+        # 关键：只取最后一个 token 作为当前输入 [batch, 1]
+        # 历史位置的 K/V 已经缓存在 kv_cache_manager 中，无需重算
+        last_token = generated[:, -1:]
+        # 长度为 1 的因果掩码：单 token 可见自身及所有历史缓存位置（广播到 [1, p+1]）
+        tgt_mask = self.generate_square_subsequent_mask(1).to(generated.device)
+        
+        tgt_embedded = self.embedding(last_token) * math.sqrt(self.d_model)
+        
+        # 位置编码修正：单 token 输入时 pos_encoder 会加 PE(0)，
+        # 必须手动取该 token 真实位置 t 的 PE(t)
+        position = kv_cache_manager.get_current_length()
+        pe = self.pos_encoder.pe[:, position:position + 1, :]  # [1, 1, d_model]
+        tgt_encoded = tgt_embedded + pe.to(tgt_embedded.dtype)
+        
+        # 先快照所有层的历史 K/V，再逐层计算+更新
+        # （current_length 在各层间共享，若边读边写会导致后面的层读到错误长度）
+        past_kvs = [kv_cache_manager.get_layer(i) for i in range(self.num_decoder_layers)]
+        
+        # 逐层 Decoder，传递 KV Cache
+        output = tgt_encoded
+        for i, layer in enumerate(self.decoder_layers):
+            output, cross_attn_weights, present_self_kv = layer(
+                output, memory, tgt_mask, None, past_key_value=past_kvs[i]
+            )
+            # 只把新 token 产生的 K/V（最后一个位置）写入缓存，避免重复写入历史
+            kv_cache_manager.update_layer(
+                i,
+                present_self_kv[0][:, :, -1:, :],
+                present_self_kv[1][:, :, -1:, :],
+                position=position
+            )
+        
+        # 只取最后一个位置（序列长度为1，即 output[:, -1, :] == output[:, 0, :]）
         last_output = output[:, -1, :]  # [batch_size, d_model]
         
         # 投影到词汇表
         logits = self.output_projection(last_output)  # [batch_size, vocab_size]
         
-        return logits
+        return logits, kv_cache_manager
     
     def clear_cache(self):
         """
@@ -967,3 +1023,47 @@ if __name__ == '__main__':
         print(f"[OK] Transformer测试完成！")
         print(f"{'='*60}")
         print(f"\n提示: 完整日志已自动保存到 logs/ 目录")
+        
+        # ==================== KV Cache 加速演示 ====================
+        print("\n" + "="*60)
+        print("KV Cache 加速演示")
+        print("="*60)
+        
+        import time
+        from scripts.optimization.kv_cache import KVCacheManager
+        
+        model_kv = TransformerModel(vocab_size=1000, d_model=128, nhead=8,
+                                    num_encoder_layers=2, num_decoder_layers=2)
+        src_kv = torch.randint(0, 1000, (1, 20))
+        BOS_TOKEN_ID = 2
+        STEPS = 30
+        
+        # 方式一：无 KV Cache（传统方式：每步把整个 generated 序列喂给 Decoder 重算全部位置）
+        model_kv.clear_cache()
+        generated = torch.tensor([[BOS_TOKEN_ID]])
+        start = time.time()
+        for _ in range(STEPS):
+            logits, _ = model_kv.generate_step(src_kv, generated, use_cache=False)
+            next_token = torch.argmax(logits, dim=-1, keepdim=True)
+            generated = torch.cat([generated, next_token], dim=1)
+        time_no_cache = time.time() - start
+        
+        # 方式二：有 KV Cache（每步只输入最新 token，历史 K/V 直接复用）
+        model_kv.clear_cache()
+        generated = torch.tensor([[BOS_TOKEN_ID]])
+        kv_manager = KVCacheManager(num_layers=2, batch_size=1, num_heads=8,
+                                    max_seq_len=128, head_dim=16,
+                                    device=torch.device('cpu'))
+        kv_manager.initialize()
+        start = time.time()
+        for _ in range(STEPS):
+            logits, kv_manager = model_kv.generate_step(src_kv, generated, kv_cache_manager=kv_manager)
+            next_token = torch.argmax(logits, dim=-1, keepdim=True)
+            generated = torch.cat([generated, next_token], dim=1)
+        time_with_cache = time.time() - start
+        
+        print(f"\n生成 {STEPS} 个 token：")
+        print(f"  无 KV Cache 耗时: {time_no_cache:.4f}s")
+        print(f"  有 KV Cache 耗时: {time_with_cache:.4f}s")
+        if time_with_cache > 0:
+            print(f"  加速比: {time_no_cache / time_with_cache:.2f}x")

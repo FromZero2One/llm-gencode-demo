@@ -64,7 +64,7 @@ def test_attention():
         key = torch.randn(batch_size, seq_len, d_model)
         value = torch.randn(batch_size, seq_len, d_model)
 
-        output, weights = attention(query, key, value)
+        output, weights, _ = attention(query, key, value)
 
         assert output.shape == (batch_size, seq_len, d_model)
         assert weights.shape[0] == batch_size
